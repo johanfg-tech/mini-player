@@ -73,10 +73,12 @@ public class PlayerService extends Service {
     static final String ACT_NEXT = "com.johan.miniplayer.NEXT";
     static final String ACT_PREV = "com.johan.miniplayer.PREV";
     static final String ACT_STOP = "com.johan.miniplayer.STOP";
+    static final String ACT_BG = "com.johan.miniplayer.BG";
 
     private static final String CHANNEL = "player";
     private static final int NOTIF_ID = 7;
-    private static final int CARD_W = 368, CARD_H = 328, PANEL_H = 600, BUBBLE = 76; // en dp
+    private static final int CARD_W = 368, CARD_H = 328, PANEL_H = 600, BUBBLE = 56; // en dp
+    private static final long DOCK_DELAY = 5000;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newFixedThreadPool(3);
@@ -93,7 +95,7 @@ public class PlayerService extends Service {
 
     private JSONArray queue = new JSONArray();
     private int qIndex = -1;
-    private boolean shuffle, repeat, bubble, panelOpen;
+    private boolean shuffle, repeat, bubble, panelOpen, docked;
     private String curId;
     private String curTitle = "", curChannel = "";
     private boolean loading;
@@ -104,6 +106,8 @@ public class PlayerService extends Service {
     private String notifKey = "";
     private Bitmap art;
     private String artId;
+
+    private final Runnable dockRunnable = this::dock;
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -144,6 +148,10 @@ public class PlayerService extends Service {
                 case ACT_PREV: prev(); break;
                 case ACT_STOP: stopSelf(); break;
                 case ACT_SHOW: setBubble(false); break;
+                case ACT_BG:
+                    if (root != null) root.setVisibility(android.view.View.VISIBLE);
+                    if (intent.getBooleanExtra("changed", false)) sendBg();
+                    break;
                 default: break;
             }
         }
@@ -370,6 +378,8 @@ public class PlayerService extends Service {
             switch (ev.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX = x; downY = y; lastX = x; lastY = y;
+                    main.removeCallbacks(dockRunnable);
+                    if (docked) undock();
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (armed) moveByPx(x - lastX, y - lastY);
@@ -385,6 +395,7 @@ public class PlayerService extends Service {
                             setBubble(false);
                         }
                     }
+                    if (bubble) main.postDelayed(dockRunnable, DOCK_DELAY);
                     break;
                 default:
                     break;
@@ -425,8 +436,34 @@ public class PlayerService extends Service {
 
     private void clampPos() {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        lp.x = Math.max(-lp.width / 3, Math.min(lp.x, dm.widthPixels - lp.width * 2 / 3));
-        lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - lp.height / 2));
+        if (bubble) {
+            lp.x = Math.max(-lp.width / 2, Math.min(lp.x, dm.widthPixels - lp.width / 2));
+            lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - lp.height));
+        } else {
+            lp.x = Math.max(0, Math.min(lp.x, dm.widthPixels - lp.width));
+            lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - lp.height / 2));
+        }
+    }
+
+    /** Esconde la burbuja a medias contra el borde más cercano y la vuelve transparente. */
+    private void dock() {
+        if (root == null || !bubble || docked) return;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        boolean left = lp.x + lp.width / 2 < dm.widthPixels / 2;
+        lp.x = left ? -lp.width / 2 : dm.widthPixels - lp.width / 2;
+        docked = true;
+        root.setAlpha(0.45f);
+        wm.updateViewLayout(root, lp);
+    }
+
+    private void undock() {
+        if (root == null) return;
+        docked = false;
+        root.setAlpha(1f);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (lp.x < 0) lp.x = 0;
+        else if (lp.x > dm.widthPixels - lp.width) lp.x = dm.widthPixels - lp.width;
+        wm.updateViewLayout(root, lp);
     }
 
     private void moveByPx(float dx, float dy) {
@@ -459,6 +496,9 @@ public class PlayerService extends Service {
 
     private void setBubble(boolean b) {
         if (root == null) return;
+        main.removeCallbacks(dockRunnable);
+        docked = false;
+        root.setAlpha(1f);
         bubble = b;
         if (b) {
             panelOpen = false;
@@ -466,6 +506,32 @@ public class PlayerService extends Service {
         }
         applySize();
         pushState();
+        if (b) main.postDelayed(dockRunnable, DOCK_DELAY);
+    }
+
+    // ------------------------------------------------------------------ temas y fondo propio
+
+    private java.io.File bgFile() { return new java.io.File(getFilesDir(), "fondo.jpg"); }
+
+    private void sendBg() {
+        if (ui == null) return;
+        final java.io.File f = bgFile();
+        io.execute(() -> {
+            String js = "null";
+            if (f.exists()) {
+                try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[16384];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    js = JSONObject.quote("data:image/jpeg;base64,"
+                            + android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP));
+                } catch (Exception ignored) {
+                }
+            }
+            final String arg = js;
+            main.post(() -> { if (ui != null) ui.evaluateJavascript("window.__bg&&window.__bg(" + arg + ")", null); });
+        });
     }
 
     private void setPanel(boolean open) {
@@ -550,6 +616,21 @@ public class PlayerService extends Service {
                 break;
             }
             case "drag": if (root != null) root.armed = true; return;
+            case "getTheme": reply(cbId, JSONObject.quote(prefs.getString("theme", "crepusculo"))); return;
+            case "setTheme": prefs.edit().putString("theme", a.optString(0, "crepusculo")).apply(); break;
+            case "getBg": sendBg(); break;
+            case "clearBg": bgFile().delete(); sendBg(); break;
+            case "pickBg": {
+                if (root != null) root.setVisibility(android.view.View.INVISIBLE);
+                Intent pick = new Intent(this, PickImageActivity.class);
+                pick.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    startActivity(pick);
+                } catch (Exception e) {
+                    if (root != null) root.setVisibility(android.view.View.VISIBLE);
+                }
+                break;
+            }
             case "panel": setPanel(a.optBoolean(0, false)); break;
             case "mode": setBubble("bubble".equals(a.optString(0, ""))); break;
             case "close": stopSelf(); return;

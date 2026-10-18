@@ -14,6 +14,11 @@
     --accent: #8d7dff;
     --track: rgba(255, 255, 255, 0.12);
     --line: rgba(255, 255, 255, 0.08);
+    --b1: rgba(90, 110, 255, .35); --b2: rgba(170, 130, 255, .9); --b3: rgba(80, 130, 255, .55);
+    --p1: #9d8fff; --p2: #6b62ea; --p3: #5458d8;
+    --f1: #7a69ff; --f2: #a091ff; --knob: #a597ff;
+    --glowc: rgba(140, 110, 255, .35);
+    --panel1: #1b1d38; --panel2: #0f1022;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
@@ -33,8 +38,8 @@
     border: 1.5px solid transparent;
     background:
       linear-gradient(160deg, var(--bg1), var(--bg2)) padding-box,
-      linear-gradient(135deg, rgba(90, 110, 255, .35), rgba(170, 130, 255, .9) 45%, rgba(80, 130, 255, .55)) border-box;
-    box-shadow: 0 0 14px rgba(140, 110, 255, .35);
+      linear-gradient(135deg, var(--b1), var(--b2) 45%, var(--b3)) border-box;
+    box-shadow: 0 0 14px var(--glowc);
     overflow: hidden;
   }
   .glow {
@@ -43,6 +48,16 @@
     filter: blur(30px) saturate(1.3);
     opacity: .22; pointer-events: none;
   }
+  .photo {
+    position: absolute; inset: 0; pointer-events: none; display: none;
+    background-size: cover; background-position: center;
+  }
+  .photo::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(8, 8, 18, .35), rgba(8, 8, 18, .78) 55%, rgba(8, 8, 18, .9));
+  }
+  body.hasBg .photo { display: block; }
+  body.hasBg .glow { display: none; }
   .content { position: relative; height: 300px; padding: 34px 22px 18px; display: flex; flex-direction: column; }
 
   .toolbar {
@@ -57,7 +72,7 @@
   .art {
     width: 104px; height: 104px; flex: none;
     border-radius: 18px; overflow: hidden;
-    background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
+    background: linear-gradient(145deg, var(--p3), var(--p1));
     box-shadow: 0 8px 20px rgba(0, 0, 0, .45);
     display: grid; place-items: center;
   }
@@ -79,10 +94,10 @@
 
   .progress { margin-top: 16px; padding: 10px 0; }
   .track { position: relative; height: 6px; border-radius: 99px; background: var(--track); }
-  .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, #7a69ff, #a091ff); }
+  .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--f1), var(--f2)); }
   .knob {
     position: absolute; top: 50%; left: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px;
-    border-radius: 50%; background: #a597ff; box-shadow: 0 0 10px rgba(150, 130, 255, .9);
+    border-radius: 50%; background: var(--knob); box-shadow: 0 0 10px var(--knob);
   }
   .times { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--soft); font-variant-numeric: tabular-nums; }
 
@@ -95,8 +110,8 @@
   .play {
     width: 64px; height: 64px; border-radius: 50%;
     display: grid; place-items: center; color: #fff; position: relative;
-    background: radial-gradient(circle at 35% 30%, #9d8fff, #6b62ea 60%, #5458d8);
-    box-shadow: 0 0 20px rgba(130, 110, 255, .65), inset 0 1px 0 rgba(255, 255, 255, .25);
+    background: radial-gradient(circle at 35% 30%, var(--p1), var(--p2) 60%, var(--p3));
+    box-shadow: 0 0 20px var(--glowc), inset 0 1px 0 rgba(255, 255, 255, .25);
   }
   .play:active { transform: scale(.95); }
   .play .spin {
@@ -110,14 +125,14 @@
   /* ---------- panel (buscar / mixes) ---------- */
   .panel {
     position: absolute; inset: 0; z-index: 10;
-    background: linear-gradient(170deg, #1b1d38, #0f1022);
+    background: linear-gradient(170deg, var(--panel1), var(--panel2));
     display: none; flex-direction: column;
     padding: 36px 14px 12px;
   }
   .panel.open { display: flex; }
   .tabs { display: flex; gap: 6px; margin: 2px 0 10px; align-items: center; }
   .tab { font-size: 13.5px; padding: 6px 14px; border-radius: 99px; color: var(--soft); }
-  .tab.on { background: rgba(141, 125, 255, .22); color: #fff; }
+  .tab.on { background: color-mix(in srgb, var(--accent) 24%, transparent); color: #fff; }
   .tabs .spacer { flex: 1; }
   .view { display: none; flex: 1; flex-direction: column; min-height: 0; }
   .view.on { display: flex; }
@@ -128,6 +143,7 @@
   }
   .field:focus { border-color: rgba(141, 125, 255, .7); }
   .row { display: flex; gap: 8px; align-items: center; }
+  .list::-webkit-scrollbar { width: 0; height: 0; }
   .list { flex: 1; overflow-y: auto; touch-action: pan-y; margin-top: 8px; min-height: 0; }
   .item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px; border-radius: 12px; text-align: left; }
   .item:active { background: rgba(255, 255, 255, .08); }
@@ -135,13 +151,13 @@
   .item .info { min-width: 0; flex: 1; }
   .item .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .item.playing .t { color: #b3a8ff; }
+  .item.playing .t { color: var(--accent); }
   .mini { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; color: var(--soft); }
   .mini:active { background: rgba(255, 255, 255, .1); color: #fff; }
   .empty { padding: 26px 10px; text-align: center; font-size: 13px; color: var(--muted); line-height: 1.5; }
   .btn {
     height: 40px; padding: 0 16px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #fff;
-    background: linear-gradient(135deg, #8d7dff, #5d63e6); flex: none;
+    background: linear-gradient(135deg, var(--p1), var(--p3)); flex: none;
   }
   .btn.ghost { background: rgba(255, 255, 255, .08); font-weight: 500; }
   .btn.danger { background: #d9475b; }
@@ -167,7 +183,7 @@
   }
   .sheet.open { display: flex; }
   .sheet .box {
-    margin-top: auto; background: #1d1f3d; border-top: 1px solid rgba(255, 255, 255, .1);
+    margin-top: auto; background: var(--panel1); border-top: 1px solid rgba(255, 255, 255, .1);
     border-radius: 22px 22px 0 0; padding: 16px 14px 14px; max-height: 88%; display: flex; flex-direction: column;
   }
   .sheet h3 { font-size: 16px; }
@@ -177,12 +193,28 @@
   .check svg { opacity: 0; }
   .check.on svg { opacity: 1; }
 
+  /* ---------- temas ---------- */
+  .themes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .theme {
+    position: relative; height: 74px; border-radius: 16px; overflow: hidden; text-align: left;
+    padding: 10px 12px; display: flex; flex-direction: column; justify-content: flex-end;
+    border: 2px solid transparent;
+  }
+  .theme.on { border-color: #fff; }
+  .theme .tn { font-size: 13.5px; font-weight: 700; color: #fff; position: relative; }
+  .theme .dots { display: flex; gap: 4px; margin-top: 4px; position: relative; }
+  .theme .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; border: 1px solid rgba(255,255,255,.3); }
+  .bgrow { display: flex; gap: 8px; margin: 4px 0 12px; }
+  .bgrow .btn { flex: 1; }
+  .btn:disabled { opacity: .4; }
+  .sectitle { font-size: 12px; color: var(--muted); margin: 4px 2px 8px; text-transform: uppercase; letter-spacing: .08em; }
+
   /* ---------- modo burbuja ---------- */
   .bubble {
-    position: absolute; inset: 6px; border-radius: 50%; display: none;
-    background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
+    position: absolute; inset: 4px; border-radius: 50%; display: none;
+    background: linear-gradient(145deg, var(--p3), var(--p1));
     background-size: cover; background-position: center;
-    box-shadow: 0 0 0 2px rgba(170, 130, 255, .9), 0 0 14px rgba(140, 110, 255, .6);
+    box-shadow: 0 0 0 2px var(--b2), 0 0 8px var(--glowc);
     overflow: hidden;
   }
   .bubble .state { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10, 10, 25, .35); }
@@ -193,6 +225,7 @@
 <body>
 <div class="card" id="card">
   <div class="glow" id="glow"></div>
+  <div class="photo" id="photo"></div>
 
   <div class="toolbar">
     <button class="tb" id="bSearch" aria-label="Buscar">
@@ -200,6 +233,9 @@
     </button>
     <button class="tb" id="bMixes" aria-label="Mis mixes">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h12M3 12h12M3 18h7"/><path d="M17 18V8l5-1"/><circle cx="15" cy="18" r="2"/></svg>
+    </button>
+    <button class="tb" id="bThemes" aria-label="Temas">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></svg>
     </button>
     <button class="tb" id="bMin" aria-label="Hacer burbuja">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
@@ -265,6 +301,7 @@
       </button>
       <button class="tab on" id="tabSearch">Buscar</button>
       <button class="tab" id="tabMixes">Mis mixes</button>
+      <button class="tab" id="tabThemes">Temas</button>
     </div>
 
     <div class="view on" id="vSearch">
@@ -314,6 +351,18 @@
         </button>
       </div>
       <div class="list" id="mixSongs"></div>
+    </div>
+
+    <div class="view" id="vThemes">
+      <div class="list" style="margin-top:0">
+        <div class="sectitle">Tu imagen de fondo</div>
+        <div class="bgrow">
+          <button class="btn" id="bgPick">Elegir imagen</button>
+          <button class="btn ghost" id="bgClear" disabled>Quitar</button>
+        </div>
+        <div class="sectitle">Colores</div>
+        <div class="themes" id="themeGrid"></div>
+      </div>
     </div>
 
     <!-- Hoja: guardar canción en mixes -->
@@ -378,6 +427,53 @@ function currentSong() {
   if (!st || !st.id) return null;
   return { id: st.id, title: st.title || '', channel: st.channel || '', duration: st.dur ? fmt(st.dur) : '' };
 }
+
+// ---------------- temas ----------------
+const THEMES = [
+  { id: 'crepusculo', name: 'Crepúsculo', bg: ['rgba(31,33,62,.96)', 'rgba(15,16,33,.98)'], panel: ['#1b1d38', '#0f1022'], accent: '#8d7dff', muted: '#a7a6d6', soft: '#b9b8e2', border: ['rgba(90,110,255,.35)', 'rgba(170,130,255,.9)', 'rgba(80,130,255,.55)'], play: ['#9d8fff', '#6b62ea', '#5458d8'], fill: ['#7a69ff', '#a091ff'], glow: 'rgba(140,110,255,.4)' },
+  { id: 'carmesi', name: 'Luna carmesí', bg: ['rgba(28,10,14,.96)', 'rgba(10,4,6,.98)'], panel: ['#22090e', '#0c0305'], accent: '#ff4a5a', muted: '#c99aa0', soft: '#e0b8bd', border: ['rgba(120,10,25,.5)', 'rgba(230,40,60,.95)', 'rgba(90,0,15,.6)'], play: ['#ff5a66', '#d11a2e', '#8f0d1c'], fill: ['#b3121f', '#ff4a5a'], glow: 'rgba(230,30,50,.45)' },
+  { id: 'sakura', name: 'Sakura', bg: ['rgba(44,20,36,.96)', 'rgba(22,10,20,.98)'], panel: ['#2c1424', '#150a13'], accent: '#ff9ac1', muted: '#d6a9bf', soft: '#efc9da', border: ['rgba(255,150,190,.35)', 'rgba(255,170,205,.95)', 'rgba(200,110,160,.5)'], play: ['#ffb3d1', '#f06a9f', '#c94a80'], fill: ['#e85d95', '#ffb3d1'], glow: 'rgba(255,140,185,.45)' },
+  { id: 'oceano', name: 'Océano', bg: ['rgba(10,30,52,.96)', 'rgba(5,15,30,.98)'], panel: ['#0b1d33', '#05101e'], accent: '#4cc3ff', muted: '#93b6cf', soft: '#b5d3e8', border: ['rgba(40,120,220,.4)', 'rgba(70,200,255,.95)', 'rgba(20,90,180,.55)'], play: ['#6fd2ff', '#2a92e8', '#1b62b8'], fill: ['#2a92e8', '#6fd2ff'], glow: 'rgba(60,170,255,.45)' },
+  { id: 'bosque', name: 'Bosque', bg: ['rgba(14,36,24,.96)', 'rgba(6,18,11,.98)'], panel: ['#10261a', '#06130b'], accent: '#5fe08c', muted: '#9cc4a8', soft: '#bfe0c8', border: ['rgba(40,140,80,.4)', 'rgba(95,224,140,.9)', 'rgba(30,110,60,.55)'], play: ['#7cf0a4', '#33b866', '#1f8247'], fill: ['#2fa85c', '#7cf0a4'], glow: 'rgba(80,220,130,.4)' },
+  { id: 'neon', name: 'Neón', bg: ['rgba(18,10,36,.96)', 'rgba(7,4,15,.98)'], panel: ['#140a28', '#07040f'], accent: '#00e5ff', muted: '#a99fd0', soft: '#cfc6f2', border: ['rgba(255,0,200,.7)', 'rgba(0,229,255,.95)', 'rgba(255,0,200,.7)'], play: ['#4df0ff', '#b04dff', '#ff2bd6'], fill: ['#ff2bd6', '#00e5ff'], glow: 'rgba(0,229,255,.5)' },
+  { id: 'oro', name: 'Oro negro', bg: ['rgba(24,21,12,.96)', 'rgba(10,9,6,.98)'], panel: ['#18150c', '#0a0906'], accent: '#f2c14e', muted: '#c4b48c', soft: '#e3d3a8', border: ['rgba(140,110,40,.45)', 'rgba(242,193,78,.95)', 'rgba(120,90,30,.55)'], play: ['#ffd877', '#e0a82e', '#a8771a'], fill: ['#c8921f', '#ffd877'], glow: 'rgba(242,193,78,.4)' },
+  { id: 'lava', name: 'Lava', bg: ['rgba(38,16,8,.96)', 'rgba(18,7,3,.98)'], panel: ['#261208', '#120804'], accent: '#ff7a2f', muted: '#d0a48c', soft: '#ecc5ae', border: ['rgba(200,60,10,.5)', 'rgba(255,122,47,.95)', 'rgba(160,40,5,.6)'], play: ['#ff9d5c', '#f05a1a', '#b8360a'], fill: ['#e0450f', '#ffb066'], glow: 'rgba(255,110,40,.45)' },
+  { id: 'hielo', name: 'Hielo', bg: ['rgba(20,36,48,.96)', 'rgba(10,20,28,.98)'], panel: ['#14252f', '#0a141b'], accent: '#a8ecff', muted: '#a3bfcc', soft: '#d2e9f2', border: ['rgba(150,220,255,.4)', 'rgba(220,248,255,.95)', 'rgba(120,190,230,.5)'], play: ['#e2f8ff', '#8fd8f2', '#5aaed0'], fill: ['#6cc4e6', '#e2f8ff'], glow: 'rgba(170,230,255,.45)' },
+  { id: 'sombra', name: 'Sombra', bg: ['rgba(22,22,24,.96)', 'rgba(8,8,9,.98)'], panel: ['#161618', '#09090a'], accent: '#ececec', muted: '#a3a3a8', soft: '#cfcfd4', border: ['rgba(255,255,255,.15)', 'rgba(255,255,255,.6)', 'rgba(255,255,255,.15)'], play: ['#fafafa', '#bdbdbd', '#8a8a8a'], fill: ['#9a9a9a', '#ffffff'], glow: 'rgba(255,255,255,.18)' },
+];
+let themeId = 'crepusculo';
+function applyTheme(id) {
+  const t = THEMES.find((x) => x.id === id) || THEMES[0];
+  themeId = t.id;
+  const r = document.documentElement.style;
+  r.setProperty('--bg1', t.bg[0]); r.setProperty('--bg2', t.bg[1]);
+  r.setProperty('--panel1', t.panel[0]); r.setProperty('--panel2', t.panel[1]);
+  r.setProperty('--accent', t.accent); r.setProperty('--muted', t.muted); r.setProperty('--soft', t.soft);
+  r.setProperty('--b1', t.border[0]); r.setProperty('--b2', t.border[1]); r.setProperty('--b3', t.border[2]);
+  r.setProperty('--p1', t.play[0]); r.setProperty('--p2', t.play[1]); r.setProperty('--p3', t.play[2]);
+  r.setProperty('--f1', t.fill[0]); r.setProperty('--f2', t.fill[1]); r.setProperty('--knob', t.accent);
+  r.setProperty('--glowc', t.glow);
+  const light = t.id === 'sombra' || t.id === 'hielo';
+  $('bPlay').style.color = light ? '#111' : '#fff';
+}
+function renderThemes() {
+  $('themeGrid').innerHTML = THEMES.map((t) => `
+    <button class="theme ${t.id === themeId ? 'on' : ''}" data-id="${t.id}"
+      style="background:linear-gradient(150deg, ${t.panel[0]}, ${t.panel[1]}); box-shadow: inset 0 0 0 1px ${t.border[1]}">
+      <span class="tn">${esc(t.name)}</span>
+      <span class="dots"><i style="background:${t.play[0]}"></i><i style="background:${t.play[1]}"></i><i style="background:${t.accent}"></i></span>
+    </button>`).join('');
+  $('themeGrid').querySelectorAll('.theme').forEach((b) => {
+    b.onclick = () => { applyTheme(b.dataset.id); send('setTheme', themeId); renderThemes(); };
+  });
+}
+window.__bg = (url) => {
+  document.body.classList.toggle('hasBg', !!url);
+  $('photo').style.backgroundImage = url ? `url("${url}")` : '';
+  $('bgClear').disabled = !url;
+};
+call('getTheme').then((id) => { applyTheme(id); });
+send('getBg');
 
 // ---------------- mixes ----------------
 function saveMixes() { send('setMixes', mixes); }
@@ -482,6 +578,9 @@ $('bRepeat').onclick = async () => $('bRepeat').classList.toggle('on', await cal
 $('heart').onclick = () => { const s = currentSong(); if (s) { toggleInMix(favMix(), s); refreshHeart(); } };
 $('addMix').onclick = () => { const s = currentSong(); if (s) { openPanel('mixes'); openSheet(s); } };
 $('bMin').onclick = () => { closePanel(); send('mode', 'bubble'); };
+$('bThemes').onclick = () => openPanel('themes');
+$('bgPick').onclick = () => send('pickBg');
+$('bgClear').onclick = () => send('clearBg');
 $('bClose').onclick = () => send('close');
 
 const prog = $('progress');
@@ -500,14 +599,16 @@ prog.addEventListener('pointercancel', () => { seeking = false; });
 
 // ---------------- panel ----------------
 function showView(v) {
-  ['vSearch', 'vMixes', 'vMix'].forEach((id) => $(id).classList.toggle('on', id === v));
+  ['vSearch', 'vMixes', 'vMix', 'vThemes'].forEach((id) => $(id).classList.toggle('on', id === v));
   $('tabSearch').classList.toggle('on', v === 'vSearch');
-  $('tabMixes').classList.toggle('on', v !== 'vSearch');
+  $('tabMixes').classList.toggle('on', v === 'vMixes' || v === 'vMix');
+  $('tabThemes').classList.toggle('on', v === 'vThemes');
 }
 function openPanel(which) {
   $('panel').classList.add('open');
   send('panel', true);
   if (which === 'mixes') { showView('vMixes'); renderMixes(); }
+  else if (which === 'themes') { showView('vThemes'); renderThemes(); }
   else { showView('vSearch'); setTimeout(() => $('q').focus(), 250); }
 }
 function closePanel() {
@@ -521,6 +622,7 @@ $('bMixes').onclick = () => openPanel('mixes');
 $('bBack').onclick = closePanel;
 $('tabSearch').onclick = () => { showView('vSearch'); };
 $('tabMixes').onclick = () => { showView('vMixes'); renderMixes(); };
+$('tabThemes').onclick = () => { showView('vThemes'); renderThemes(); };
 
 // ---------------- búsqueda ----------------
 function songRow(it, i, opts) {
