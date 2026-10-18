@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://i.ytimg.com data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Mini Player</title>
+<style>
+  :root {
+    --bg1: rgba(31, 33, 62, 0.94);
+    --bg2: rgba(15, 16, 33, 0.97);
+    --text: #f4f3ff;
+    --muted: #a7a6d6;
+    --soft: #b9b8e2;
+    --accent: #8d7dff;
+    --accent2: #5d63e6;
+    --track: rgba(255, 255, 255, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; -webkit-app-region: no-drag; }
+  svg { display: block; }
+
+  .card {
+    position: absolute; inset: 14px;
+    border-radius: 30px;
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(160deg, var(--bg1), var(--bg2)) padding-box,
+      linear-gradient(135deg, rgba(90, 110, 255, .35), rgba(170, 130, 255, .9) 45%, rgba(80, 130, 255, .55)) border-box;
+    box-shadow: 0 0 18px rgba(140, 110, 255, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
+    overflow: hidden;
+    -webkit-app-region: drag;
+  }
+  .glow {
+    position: absolute; inset: -30px;
+    background-size: cover; background-position: center;
+    filter: blur(34px) saturate(1.3);
+    opacity: .22;
+    transition: background-image .6s;
+    pointer-events: none;
+  }
+  .content { position: relative; height: 100%; padding: 30px 22px 18px; display: flex; flex-direction: column; }
+
+  /* Barra superior (aparece al pasar el mouse) */
+  .toolbar {
+    position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 2px; padding: 3px 6px;
+    border-radius: 999px; background: rgba(255, 255, 255, .06);
+    opacity: 0; transition: opacity .2s; z-index: 5;
+  }
+  .card:hover .toolbar, .toolbar:focus-within { opacity: 1; }
+  .tb { width: 24px; height: 20px; display: grid; place-items: center; border-radius: 8px; color: var(--soft); }
+  .tb:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+  .tb.on { color: var(--accent); }
+  .tb.close:hover { background: #e5485d; color: #fff; }
+
+  .top { display: flex; gap: 16px; align-items: center; }
+  .art {
+    width: 108px; height: 108px; flex: none;
+    border-radius: 18px; overflow: hidden;
+    background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
+    display: grid; place-items: center;
+  }
+  .art img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .art.has img { display: block; }
+  .art.has .note { display: none; }
+  .meta { flex: 1; min-width: 0; padding-right: 6px; }
+  .title {
+    font-size: 19px; font-weight: 600; line-height: 1.22; letter-spacing: -.2px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .artist { margin-top: 6px; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .heart { position: absolute; top: 26px; right: 18px; width: 30px; height: 30px; display: grid; place-items: center; color: var(--soft); }
+  .heart.on { color: var(--accent); filter: drop-shadow(0 0 6px rgba(141, 125, 255, .6)); }
+  .heart:disabled { opacity: .3; cursor: default; }
+  .ad { margin-top: 6px; font-size: 11px; color: #ffc86b; display: none; }
+  .ad.show { display: block; }
+
+  .progress { margin-top: 20px; -webkit-app-region: no-drag; padding: 6px 0; cursor: pointer; }
+  .track { position: relative; height: 6px; border-radius: 99px; background: var(--track); }
+  .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, #7a69ff, #a091ff); }
+  .knob {
+    position: absolute; top: 50%; left: 0; width: 15px; height: 15px; margin: -7.5px 0 0 -7.5px;
+    border-radius: 50%; background: #a597ff; box-shadow: 0 0 10px rgba(150, 130, 255, .9);
+  }
+  .times { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12.5px; color: var(--soft); font-variant-numeric: tabular-nums; }
+
+  .controls { margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
+  .ctl { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: #e6e5ff; position: relative; }
+  .ctl:hover { background: rgba(255, 255, 255, .07); }
+  .ctl.small { color: var(--soft); }
+  .ctl.on { color: var(--accent); }
+  .ctl.on::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .play {
+    width: 64px; height: 64px; border-radius: 50%;
+    display: grid; place-items: center; color: #fff;
+    background: radial-gradient(circle at 35% 30%, #9d8fff, #6b62ea 60%, #5458d8);
+    box-shadow: 0 0 22px rgba(130, 110, 255, .65), inset 0 1px 0 rgba(255, 255, 255, .25);
+    transition: transform .12s;
+  }
+  .play:hover { transform: scale(1.05); }
+  .play:active { transform: scale(.96); }
+
+  /* Panel de búsqueda */
+  .panel {
+    position: absolute; inset: 0; z-index: 10;
+    background: linear-gradient(160deg, #1b1d38, #0f1022);
+    display: none; flex-direction: column;
+    padding: 30px 14px 12px;
+  }
+  .panel.open { display: flex; }
+  .searchrow { display: flex; gap: 8px; align-items: center; -webkit-app-region: no-drag; }
+  .searchrow input {
+    flex: 1; height: 36px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .1);
+    background: rgba(255, 255, 255, .06); color: var(--text); padding: 0 12px; font: inherit; font-size: 14px; outline: none;
+  }
+  .searchrow input:focus { border-color: rgba(141, 125, 255, .7); }
+  .tabs { display: flex; gap: 6px; margin: 10px 2px 6px; -webkit-app-region: no-drag; }
+  .tab { font-size: 12.5px; padding: 4px 10px; border-radius: 99px; color: var(--soft); }
+  .tab.on { background: rgba(141, 125, 255, .2); color: #fff; }
+  .list { flex: 1; overflow-y: auto; -webkit-app-region: no-drag; padding-right: 2px; }
+  .list::-webkit-scrollbar { width: 6px; }
+  .list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .15); border-radius: 9px; }
+  .item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px; border-radius: 12px; text-align: left; }
+  .item:hover { background: rgba(255, 255, 255, .07); }
+  .item img { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: none; background: #2a2c55; }
+  .item .t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .s { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .item .info { min-width: 0; flex: 1; }
+  .empty { padding: 26px 10px; text-align: center; font-size: 13px; color: var(--muted); }
+
+  /* Estado de conexión */
+  .overlay {
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(14, 15, 31, .95);
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    text-align: center; padding: 24px; font-size: 14px; color: var(--soft);
+  }
+  .overlay.show { display: flex; }
+  .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .12); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn { -webkit-app-region: no-drag; padding: 8px 16px; border-radius: 12px; background: linear-gradient(135deg, #8d7dff, #5d63e6); color: #fff; font-size: 13px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="glow" id="glow"></div>
+
+  <div class="toolbar">
+    <button class="tb" id="bSearch" title="Buscar (Ctrl+F)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="tb" id="bBrave" title="Mostrar/ocultar Brave (para iniciar sesión en YouTube)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>
+    </button>
+    <button class="tb" id="bPin" title="Siempre encima">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 4H7l3-4z"/></svg>
+    </button>
+    <button class="tb" id="bMin" title="Minimizar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
+    </button>
+    <button class="tb close" id="bClose" title="Cerrar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+
+  <button class="heart" id="heart" title="Favorito" disabled>
+    <svg width="24" height="24" viewBox="0 0 24 24"><path id="heartPath" fill="none" stroke="currentColor" stroke-width="2" d="M12 20.5s-7.5-4.6-9.3-9.2C1.6 8.4 3.5 4.5 7.3 4.5c2 0 3.6 1.1 4.7 2.7 1.1-1.6 2.7-2.7 4.7-2.7 3.8 0 5.7 3.9 4.6 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>
+  </button>
+
+  <div class="content">
+    <div class="top">
+      <div class="art" id="art">
+        <img id="artImg" alt="">
+        <svg class="note" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+      </div>
+      <div class="meta">
+        <div class="title" id="title">Nada sonando</div>
+        <div class="artist" id="artist">Toca la lupa para buscar música</div>
+        <div class="ad" id="ad">Saltando anuncio…</div>
+      </div>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="track"><div class="fill" id="fill"></div><div class="knob" id="knob"></div></div>
+    </div>
+    <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+
+    <div class="controls">
+      <button class="ctl small" id="bShuffle" title="Aleatorio">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+      </button>
+      <button class="ctl" id="bPrev" title="Anterior">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="2.6" height="16" rx="1.1"/><path d="M19.5 5.2v13.6a1 1 0 0 1-1.55.83L8.6 13.1a1.3 1.3 0 0 1 0-2.2l9.35-6.53a1 1 0 0 1 1.55.83z"/></svg>
+      </button>
+      <button class="play" id="bPlay" title="Reproducir / pausa (Espacio)">
+        <svg id="icoPlay" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1.1 1.1 0 0 0 1.7.92l11-7.2a1.1 1.1 0 0 0 0-1.84l-11-7.2A1.1 1.1 0 0 0 7 4.8z"/></svg>
+        <svg id="icoPause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5.5" y="4" width="4.6" height="16" rx="1.6"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.6"/></svg>
+      </button>
+      <button class="ctl" id="bNext" title="Siguiente">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="17.4" y="4" width="2.6" height="16" rx="1.1"/><path d="M4.5 5.2v13.6a1 1 0 0 0 1.55.83l9.35-6.53a1.3 1.3 0 0 0 0-2.2L6.05 4.37a1 1 0 0 0-1.55.83z"/></svg>
+      </button>
+      <button class="ctl small" id="bRepeat" title="Repetir canción">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="searchrow">
+      <button class="tb" id="bBack" title="Volver (Esc)" style="opacity:1">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <input id="q" type="text" placeholder="Buscar canción o artista…" spellcheck="false">
+    </div>
+    <div class="tabs">
+      <button class="tab on" id="tabRes">Resultados</button>
+      <button class="tab" id="tabFav">Favoritos</button>
+    </div>
+    <div class="list" id="list"><div class="empty">Escribe y presiona Enter</div></div>
+  </div>
+
+  <div class="overlay show" id="overlay">
+    <div class="spinner" id="spin"></div>
+    <div id="ovText">Conectando con Brave…</div>
+    <button class="btn" id="ovBtn" style="display:none"></button>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let st = null, artId = null, seeking = false, results = [], tab = 'res', status = 'connecting';
+
+function fmt(t) {
+  if (!isFinite(t) || t < 0) t = 0;
+  t = Math.floor(t);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+function setProgress(frac) {
+  frac = Math.min(1, Math.max(0, frac || 0));
+  $('fill').style.width = (frac * 100) + '%';
+  $('knob').style.left = (frac * 100) + '%';
+}
+function setArt(id) {
+  if (id === artId) return;
+  artId = id;
+  const img = $('artImg');
+  if (!id) { $('art').classList.remove('has'); $('glow').style.backgroundImage = ''; return; }
+  img.onerror = () => { if (!img.src.includes('mqdefault')) img.src = `https://i.ytimg.com/vi/${id}/mqdefault.jpg`; };
+  img.onload = () => { $('art').classList.add('has'); $('glow').style.backgroundImage = `url("${img.src}")`; };
+  img.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+}
+
+function render() {
+  if (!st) return;
+  const has = !!st.id;
+  $('title').textContent = has ? (st.title || 'Cargando…') : 'Nada sonando';
+  $('artist').textContent = has ? (st.channel || '') : 'Toca la lupa para buscar música';
+  setArt(st.id);
+  $('ad').classList.toggle('show', !!st.ad);
+  $('heart').disabled = !has;
+  $('heart').classList.toggle('on', !!st.fav);
+  $('heartPath').setAttribute('fill', st.fav ? 'currentColor' : 'none');
+  $('icoPlay').style.display = st.paused ? '' : 'none';
+  $('icoPause').style.display = st.paused ? 'none' : '';
+  $('bShuffle').classList.toggle('on', !!st.shuffle);
+  $('bRepeat').classList.toggle('on', !!st.repeat);
+  $('bBrave').classList.toggle('on', !!st.braveShown);
+  if (!seeking) {
+    setProgress(st.dur ? st.cur / st.dur : 0);
+    $('tCur').textContent = fmt(st.cur);
+  }
+  $('tDur').textContent = fmt(st.dur);
+}
+
+api.onState((s) => { st = s; render(); });
+api.onStatus(({ kind, msg }) => {
+  status = kind;
+  const ov = $('overlay'), btn = $('ovBtn');
+  btn.style.display = 'none';
+  $('spin').style.display = 'none';
+  if (kind === 'ready') { ov.classList.remove('show'); return; }
+  ov.classList.add('show');
+  if (kind === 'connecting') { $('spin').style.display = ''; $('ovText').textContent = 'Abriendo Brave…'; }
+  else if (kind === 'nobrave') {
+    $('ovText').textContent = 'No encontré Brave en este PC. Instálalo desde brave.com o elige dónde está brave.exe.';
+    btn.textContent = 'Elegir brave.exe'; btn.style.display = ''; btn.onclick = () => api.pickBrave();
+  } else if (kind === 'closed') {
+    $('ovText').textContent = 'Brave se cerró.';
+    btn.textContent = 'Volver a abrir'; btn.style.display = ''; btn.onclick = () => api.retry();
+  } else {
+    $('ovText').textContent = msg || 'Algo salió mal.';
+    btn.textContent = 'Reintentar'; btn.style.display = ''; btn.onclick = () => api.retry();
+  }
+});
+
+// Controles
+$('bPlay').onclick = () => api.toggle();
+$('bNext').onclick = () => api.next();
+$('bPrev').onclick = () => api.prev();
+$('bShuffle').onclick = async () => { const v = await api.shuffle(); $('bShuffle').classList.toggle('on', v); };
+$('bRepeat').onclick = async () => { const v = await api.repeat(); $('bRepeat').classList.toggle('on', v); };
+$('heart').onclick = () => api.fav();
+$('bBrave').onclick = () => api.brave();
+$('bMin').onclick = () => api.minimize();
+$('bClose').onclick = () => api.close();
+$('bPin').onclick = async () => { const v = await api.pin(); $('bPin').classList.toggle('on', v); };
+api.getPin().then((v) => $('bPin').classList.toggle('on', v));
+
+// Barra de progreso (clic o arrastrar)
+const prog = $('progress');
+function fracAt(e) { const r = prog.querySelector('.track').getBoundingClientRect(); return (e.clientX - r.left) / r.width; }
+prog.addEventListener('pointerdown', (e) => {
+  if (!st || !st.dur) return;
+  seeking = true; prog.setPointerCapture(e.pointerId);
+  const f = Math.min(1, Math.max(0, fracAt(e))); setProgress(f); $('tCur').textContent = fmt(f * st.dur);
+});
+prog.addEventListener('pointermove', (e) => {
+  if (!seeking) return;
+  const f = Math.min(1, Math.max(0, fracAt(e))); setProgress(f); $('tCur').textContent = fmt(f * st.dur);
+});
+prog.addEventListener('pointerup', (e) => {
+  if (!seeking) return;
+  seeking = false; api.seek(Math.min(1, Math.max(0, fracAt(e))));
+});
+
+// Búsqueda
+function openPanel() { $('panel').classList.add('open'); setTimeout(() => $('q').focus(), 50); }
+function closePanel() { $('panel').classList.remove('open'); }
+$('bSearch').onclick = openPanel;
+$('bBack').onclick = closePanel;
+
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function showList(items, emptyMsg) {
+  const list = $('list');
+  if (!items.length) { list.innerHTML = `<div class="empty">${esc(emptyMsg)}</div>`; return; }
+  list.innerHTML = items.map((it, i) => `
+    <button class="item" data-i="${i}">
+      <img src="https://i.ytimg.com/vi/${esc(it.id)}/mqdefault.jpg" alt="" onerror="this.style.visibility='hidden'">
+      <div class="info"><div class="t">${esc(it.title)}</div><div class="s">${esc(it.channel)}${it.duration ? ' · ' + esc(it.duration) : ''}</div></div>
+    </button>`).join('');
+  list.querySelectorAll('.item').forEach((el) => {
+    el.onclick = () => { const it = items[+el.dataset.i]; api.play(it, items); closePanel(); };
+  });
+}
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  setTab('res');
+  $('list').innerHTML = '<div class="empty">Buscando…</div>';
+  const r = await api.search(q);
+  if (r && r.error) { showList([], 'No se pudo buscar. Revisa tu conexión.'); return; }
+  results = r || [];
+  showList(results, 'Sin resultados');
+}
+async function setTab(t) {
+  tab = t;
+  $('tabRes').classList.toggle('on', t === 'res');
+  $('tabFav').classList.toggle('on', t === 'fav');
+  if (t === 'fav') showList(await api.favorites(), 'Aún no tienes favoritos. Toca el corazón mientras suena una canción.');
+  else showList(results, 'Escribe y presiona Enter');
+}
+$('tabRes').onclick = () => setTab('res');
+$('tabFav').onclick = () => setTab('fav');
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+
+// Teclado
+document.addEventListener('keydown', (e) => {
+  const typing = document.activeElement === $('q');
+  if (e.key === 'Escape') { closePanel(); return; }
+  if ((e.ctrlKey && e.key.toLowerCase() === 'f') || (!typing && e.key === '/')) { e.preventDefault(); openPanel(); return; }
+  if (typing) return;
+  if (e.code === 'Space') { e.preventDefault(); api.toggle(); }
+  else if (e.key === 'ArrowRight') api.next();
+  else if (e.key === 'ArrowLeft') api.prev();
+});
+</script>
+</body>
+</html>

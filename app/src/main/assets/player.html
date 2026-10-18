@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Mini Player</title>
+<style>
+  :root {
+    --bg1: rgba(31, 33, 62, 0.95);
+    --bg2: rgba(15, 16, 33, 0.97);
+    --text: #f4f3ff;
+    --muted: #a7a6d6;
+    --soft: #b9b8e2;
+    --accent: #8d7dff;
+    --track: rgba(255, 255, 255, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: "Google Sans", Roboto, system-ui, sans-serif;
+    color: var(--text);
+    user-select: none; -webkit-user-select: none;
+    touch-action: none;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; outline: none; }
+  svg { display: block; }
+
+  .card {
+    position: absolute; inset: 14px;
+    border-radius: 30px;
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(160deg, var(--bg1), var(--bg2)) padding-box,
+      linear-gradient(135deg, rgba(90, 110, 255, .35), rgba(170, 130, 255, .9) 45%, rgba(80, 130, 255, .55)) border-box;
+    box-shadow: 0 0 14px rgba(140, 110, 255, .35);
+    overflow: hidden;
+  }
+  .glow {
+    position: absolute; inset: -30px;
+    background-size: cover; background-position: center;
+    filter: blur(30px) saturate(1.3);
+    opacity: .22; pointer-events: none;
+  }
+  .content { position: relative; height: 100%; padding: 34px 22px 18px; display: flex; flex-direction: column; }
+
+  .toolbar {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 2px 6px;
+    border-radius: 999px; background: rgba(255, 255, 255, .07); z-index: 5;
+  }
+  .tb { width: 30px; height: 24px; display: grid; place-items: center; border-radius: 10px; color: var(--soft); }
+  .tb:active { background: rgba(255, 255, 255, .14); color: #fff; }
+
+  .top { display: flex; gap: 16px; align-items: center; }
+  .art {
+    width: 104px; height: 104px; flex: none;
+    border-radius: 18px; overflow: hidden;
+    background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .45);
+    display: grid; place-items: center;
+  }
+  .art img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .art.has img { display: block; }
+  .art.has .note { display: none; }
+  .meta { flex: 1; min-width: 0; padding-right: 22px; }
+  .title {
+    font-size: 18px; font-weight: 600; line-height: 1.22;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .artist { margin-top: 6px; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ad { margin-top: 6px; font-size: 11px; color: #ffc86b; display: none; }
+  .ad.show { display: block; }
+  .heart { position: absolute; top: 30px; right: 14px; width: 36px; height: 36px; display: grid; place-items: center; color: var(--soft); z-index: 4; }
+  .heart.on { color: var(--accent); }
+  .heart:disabled { opacity: .3; }
+
+  .progress { margin-top: 18px; padding: 10px 0; }
+  .track { position: relative; height: 6px; border-radius: 99px; background: var(--track); }
+  .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, #7a69ff, #a091ff); }
+  .knob {
+    position: absolute; top: 50%; left: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+    border-radius: 50%; background: #a597ff; box-shadow: 0 0 10px rgba(150, 130, 255, .9);
+  }
+  .times { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--soft); font-variant-numeric: tabular-nums; }
+
+  .controls { margin-top: auto; display: flex; align-items: center; justify-content: space-between; }
+  .ctl { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; color: #e6e5ff; position: relative; }
+  .ctl:active { background: rgba(255, 255, 255, .1); }
+  .ctl.small { color: var(--soft); }
+  .ctl.on { color: var(--accent); }
+  .ctl.on::after { content: ""; position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .play {
+    width: 64px; height: 64px; border-radius: 50%;
+    display: grid; place-items: center; color: #fff;
+    background: radial-gradient(circle at 35% 30%, #9d8fff, #6b62ea 60%, #5458d8);
+    box-shadow: 0 0 20px rgba(130, 110, 255, .65), inset 0 1px 0 rgba(255, 255, 255, .25);
+  }
+  .play:active { transform: scale(.95); }
+
+  .panel {
+    position: absolute; inset: 0; z-index: 10;
+    background: linear-gradient(160deg, #1b1d38, #0f1022);
+    display: none; flex-direction: column;
+    padding: 36px 14px 12px;
+  }
+  .panel.open { display: flex; }
+  .searchrow { display: flex; gap: 8px; align-items: center; }
+  .searchrow input {
+    flex: 1; height: 40px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12);
+    background: rgba(255, 255, 255, .06); color: var(--text); padding: 0 12px; font: inherit; font-size: 15px; outline: none;
+    user-select: text; -webkit-user-select: text;
+  }
+  .searchrow input:focus { border-color: rgba(141, 125, 255, .7); }
+  .tabs { display: flex; gap: 6px; margin: 10px 2px 6px; }
+  .tab { font-size: 13px; padding: 5px 12px; border-radius: 99px; color: var(--soft); }
+  .tab.on { background: rgba(141, 125, 255, .22); color: #fff; }
+  .list { flex: 1; overflow-y: auto; touch-action: pan-y; }
+  .item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px; border-radius: 12px; text-align: left; }
+  .item:active { background: rgba(255, 255, 255, .08); }
+  .item img { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: none; background: #2a2c55; }
+  .item .info { min-width: 0; flex: 1; }
+  .item .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .empty { padding: 26px 10px; text-align: center; font-size: 13px; color: var(--muted); }
+
+  /* Modo burbuja */
+  .bubble {
+    position: absolute; inset: 6px; border-radius: 50%; display: none;
+    background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
+    background-size: cover; background-position: center;
+    box-shadow: 0 0 0 2px rgba(170, 130, 255, .9), 0 0 14px rgba(140, 110, 255, .6);
+    overflow: hidden;
+  }
+  .bubble .state {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: rgba(10, 10, 25, .35); color: #fff;
+  }
+  body.isBubble .card { display: none; }
+  body.isBubble .bubble { display: block; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="glow" id="glow"></div>
+
+  <div class="toolbar">
+    <button class="tb" id="bSearch" aria-label="Buscar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="tb" id="bMin" aria-label="Hacer burbuja">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
+    </button>
+    <button class="tb" id="bClose" aria-label="Cerrar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+
+  <button class="heart" id="heart" aria-label="Favorito" disabled>
+    <svg width="24" height="24" viewBox="0 0 24 24"><path id="heartPath" fill="none" stroke="currentColor" stroke-width="2" d="M12 20.5s-7.5-4.6-9.3-9.2C1.6 8.4 3.5 4.5 7.3 4.5c2 0 3.6 1.1 4.7 2.7 1.1-1.6 2.7-2.7 4.7-2.7 3.8 0 5.7 3.9 4.6 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>
+  </button>
+
+  <div class="content">
+    <div class="top">
+      <div class="art" id="art">
+        <img id="artImg" alt="">
+        <svg class="note" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+      </div>
+      <div class="meta">
+        <div class="title" id="title">Nada sonando</div>
+        <div class="artist" id="artist">Toca la lupa para buscar música</div>
+        <div class="ad" id="ad">Saltando anuncio…</div>
+      </div>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="track" id="track"><div class="fill" id="fill"></div><div class="knob" id="knob"></div></div>
+    </div>
+    <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+
+    <div class="controls">
+      <button class="ctl small" id="bShuffle" aria-label="Aleatorio">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+      </button>
+      <button class="ctl" id="bPrev" aria-label="Anterior">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="2.6" height="16" rx="1.1"/><path d="M19.5 5.2v13.6a1 1 0 0 1-1.55.83L8.6 13.1a1.3 1.3 0 0 1 0-2.2l9.35-6.53a1 1 0 0 1 1.55.83z"/></svg>
+      </button>
+      <button class="play" id="bPlay" aria-label="Reproducir o pausar">
+        <svg id="icoPlay" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1.1 1.1 0 0 0 1.7.92l11-7.2a1.1 1.1 0 0 0 0-1.84l-11-7.2A1.1 1.1 0 0 0 7 4.8z"/></svg>
+        <svg id="icoPause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5.5" y="4" width="4.6" height="16" rx="1.6"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.6"/></svg>
+      </button>
+      <button class="ctl" id="bNext" aria-label="Siguiente">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="17.4" y="4" width="2.6" height="16" rx="1.1"/><path d="M4.5 5.2v13.6a1 1 0 0 0 1.55.83l9.35-6.53a1.3 1.3 0 0 0 0-2.2L6.05 4.37a1 1 0 0 0-1.55.83z"/></svg>
+      </button>
+      <button class="ctl small" id="bRepeat" aria-label="Repetir">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="searchrow">
+      <button class="tb" id="bBack" aria-label="Volver">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <input id="q" type="search" enterkeyhint="search" placeholder="Buscar canción o artista…" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="tabs">
+      <button class="tab on" id="tabRes">Resultados</button>
+      <button class="tab" id="tabFav">Favoritos</button>
+    </div>
+    <div class="list" id="list"><div class="empty">Escribe y toca buscar en el teclado</div></div>
+  </div>
+</div>
+
+<div class="bubble" id="bubble">
+  <div class="state" id="bubbleState">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+  </div>
+</div>
+
+<script>
+// ---- puente con Android ----
+const pending = {};
+let seq = 0;
+function call(name, ...args) {
+  return new Promise((resolve) => {
+    const id = String(++seq);
+    pending[id] = resolve;
+    Android.call(name, JSON.stringify(args), id);
+  });
+}
+function send(name, ...args) { Android.call(name, JSON.stringify(args), ''); }
+window.__cb = (id, value) => { const f = pending[id]; delete pending[id]; if (f) f(value); };
+
+const $ = (id) => document.getElementById(id);
+let st = null, artId = null, seeking = false, results = [];
+
+function fmt(t) {
+  if (!isFinite(t) || t < 0) t = 0;
+  t = Math.floor(t);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+function setProgress(f) {
+  f = Math.min(1, Math.max(0, f || 0));
+  $('fill').style.width = (f * 100) + '%';
+  $('knob').style.left = (f * 100) + '%';
+}
+function setArt(id) {
+  if (id === artId) return;
+  artId = id;
+  const img = $('artImg');
+  if (!id) {
+    $('art').classList.remove('has'); $('glow').style.backgroundImage = ''; $('bubble').style.backgroundImage = '';
+    return;
+  }
+  img.onerror = () => { if (!img.src.includes('mqdefault')) img.src = `https://i.ytimg.com/vi/${id}/mqdefault.jpg`; };
+  img.onload = () => {
+    $('art').classList.add('has');
+    $('glow').style.backgroundImage = `url("${img.src}")`;
+    $('bubble').style.backgroundImage = `url("${img.src}")`;
+  };
+  img.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+}
+
+window.__state = (s) => {
+  st = s;
+  document.body.classList.toggle('isBubble', !!s.bubble);
+  const has = !!s.id;
+  $('title').textContent = has ? (s.title || 'Cargando…') : 'Nada sonando';
+  $('artist').textContent = has ? (s.channel || '') : 'Toca la lupa para buscar música';
+  setArt(s.id);
+  $('ad').classList.toggle('show', !!s.ad);
+  $('heart').disabled = !has;
+  $('heart').classList.toggle('on', !!s.fav);
+  $('heartPath').setAttribute('fill', s.fav ? 'currentColor' : 'none');
+  $('icoPlay').style.display = s.paused ? '' : 'none';
+  $('icoPause').style.display = s.paused ? 'none' : '';
+  $('bubbleState').style.opacity = s.paused ? '1' : '0';
+  $('bShuffle').classList.toggle('on', !!s.shuffle);
+  $('bRepeat').classList.toggle('on', !!s.repeat);
+  if (!seeking) { setProgress(s.dur ? s.cur / s.dur : 0); $('tCur').textContent = fmt(s.cur); }
+  $('tDur').textContent = fmt(s.dur);
+};
+
+// ---- arrastrar la ventana (tocando cualquier zona libre de la tarjeta o la burbuja) ----
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('button, input, .progress, .panel')) return;
+  send('drag');
+}, true);
+
+// ---- controles ----
+$('bPlay').onclick = () => send('toggle');
+$('bNext').onclick = () => send('next');
+$('bPrev').onclick = () => send('prev');
+$('bShuffle').onclick = async () => $('bShuffle').classList.toggle('on', await call('shuffle'));
+$('bRepeat').onclick = async () => $('bRepeat').classList.toggle('on', await call('repeat'));
+$('heart').onclick = () => send('fav');
+$('bMin').onclick = () => { closePanel(); send('mode', 'bubble'); };
+$('bClose').onclick = () => send('close');
+
+// ---- barra de progreso ----
+const prog = $('progress');
+function fracAt(e) { const r = $('track').getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
+prog.addEventListener('pointerdown', (e) => {
+  if (!st || !st.dur) return;
+  seeking = true; prog.setPointerCapture(e.pointerId);
+  const f = fracAt(e); setProgress(f); $('tCur').textContent = fmt(f * st.dur);
+});
+prog.addEventListener('pointermove', (e) => {
+  if (!seeking) return;
+  const f = fracAt(e); setProgress(f); $('tCur').textContent = fmt(f * st.dur);
+});
+const endSeek = (e) => { if (!seeking) return; seeking = false; send('seek', fracAt(e)); };
+prog.addEventListener('pointerup', endSeek);
+prog.addEventListener('pointercancel', () => { seeking = false; });
+
+// ---- búsqueda ----
+function openPanel() { $('panel').classList.add('open'); send('focusable', true); setTimeout(() => $('q').focus(), 150); }
+function closePanel() { $('q').blur(); $('panel').classList.remove('open'); send('focusable', false); }
+$('bSearch').onclick = openPanel;
+$('bBack').onclick = closePanel;
+
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function showList(items, emptyMsg) {
+  const list = $('list');
+  if (!items || !items.length) { list.innerHTML = `<div class="empty">${esc(emptyMsg)}</div>`; return; }
+  list.innerHTML = items.map((it, i) => `
+    <button class="item" data-i="${i}">
+      <img src="https://i.ytimg.com/vi/${esc(it.id)}/mqdefault.jpg" alt="" onerror="this.style.visibility='hidden'">
+      <div class="info"><div class="t">${esc(it.title)}</div><div class="s">${esc(it.channel)}${it.duration ? ' · ' + esc(it.duration) : ''}</div></div>
+    </button>`).join('');
+  list.querySelectorAll('.item').forEach((el) => {
+    el.onclick = () => { send('play', items[+el.dataset.i], items); closePanel(); };
+  });
+}
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('q').blur();
+  setTab('res', true);
+  $('list').innerHTML = '<div class="empty">Buscando…</div>';
+  const r = await call('search', q);
+  if (!r || r.error) { showList([], 'No se pudo buscar. Revisa tu conexión.'); return; }
+  results = r;
+  showList(results, 'Sin resultados');
+}
+async function setTab(t, skipRender) {
+  $('tabRes').classList.toggle('on', t === 'res');
+  $('tabFav').classList.toggle('on', t === 'fav');
+  if (skipRender) return;
+  if (t === 'fav') showList(await call('favorites'), 'Aún no tienes favoritos. Toca el corazón mientras suena una canción.');
+  else showList(results, 'Escribe y toca buscar en el teclado');
+}
+$('tabRes').onclick = () => setTab('res');
+$('tabFav').onclick = () => setTab('fav');
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+</script>
+</body>
+</html>
