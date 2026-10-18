@@ -23,25 +23,30 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
-import androidx.webkit.WebViewCompat;
-import androidx.webkit.WebViewFeature;
+import androidx.media3.common.AudioAttributes;
+import androidx.media3.common.C;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -50,15 +55,17 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * Servicio que mantiene la ventana flotante sobre las demás apps y reproduce
- * YouTube (con bloqueo de anuncios) en segundo plano, con controles en la
- * notificación y en la pantalla de bloqueo.
+ * el audio de YouTube con el reproductor nativo (sin anuncios), con controles
+ * en la notificación y en la pantalla de bloqueo.
  */
 public class PlayerService extends Service {
     static final String ACT_SHOW = "com.johan.miniplayer.SHOW";
@@ -69,36 +76,39 @@ public class PlayerService extends Service {
 
     private static final String CHANNEL = "player";
     private static final int NOTIF_ID = 7;
-    private static final int CARD_W = 368, CARD_H = 328, BUBBLE = 76; // en dp
+    private static final int CARD_W = 368, CARD_H = 328, PANEL_H = 600, BUBBLE = 76; // en dp
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final ExecutorService io = Executors.newFixedThreadPool(2);
+    private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final Random rnd = new Random();
 
     private WindowManager wm;
     private WindowManager.LayoutParams lp;
     private DragLayout root;
-    private WebView ui, yt;
+    private WebView ui;
+    private ExoPlayer player;
     private MediaSession session;
-    private PowerManager.WakeLock wakeLock;
     private SharedPreferences prefs;
     private float density;
 
     private JSONArray queue = new JSONArray();
     private int qIndex = -1;
-    private boolean wantPlay, shuffle, repeat, bubble;
-    private String lastEndedId;
+    private boolean shuffle, repeat, bubble, panelOpen;
     private String curId;
     private String curTitle = "", curChannel = "";
-    private boolean curPaused = true, curAd;
-    private double curPos, curDur;
+    private boolean loading;
+    private String notice = "";
+    private int loadToken;
+    private List<StreamResolver.Source> sources;
+    private int sourceIndex;
     private String notifKey = "";
     private Bitmap art;
     private String artId;
 
-    private final Runnable poller = new Runnable() {
+    private final Runnable ticker = new Runnable() {
         @Override public void run() {
-            poll();
+            pushState();
+            updateSession();
             main.postDelayed(this, 500);
         }
     };
@@ -115,14 +125,11 @@ public class PlayerService extends Service {
         createChannel();
         setupSession();
         startFg();
-
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MiniPlayer:play");
-        wakeLock.setReferenceCounted(false);
+        setupPlayer();
 
         if (Settings.canDrawOverlays(this)) {
             setupOverlay();
-            main.postDelayed(poller, 1000);
+            main.postDelayed(ticker, 500);
         } else {
             stopSelf();
         }
@@ -130,9 +137,9 @@ public class PlayerService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String a = intent != null ? intent.getAction() : null;
-        if (a != null && yt != null) {
+        if (a != null && player != null) {
             switch (a) {
-                case ACT_TOGGLE: setPlaying(curPaused); break;
+                case ACT_TOGGLE: togglePlay(); break;
                 case ACT_NEXT: next(); break;
                 case ACT_PREV: prev(); break;
                 case ACT_STOP: stopSelf(); break;
@@ -145,18 +152,208 @@ public class PlayerService extends Service {
 
     @Override public void onDestroy() {
         main.removeCallbacksAndMessages(null);
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (player != null) player.release();
+        player = null;
         if (session != null) session.release();
         if (root != null) {
             try { wm.removeView(root); } catch (Exception ignored) {}
         }
-        if (yt != null) yt.destroy();
         if (ui != null) ui.destroy();
-        yt = null;
         ui = null;
         io.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
+    }
+
+    // ------------------------------------------------------------------ reproductor nativo
+
+    private void setupPlayer() {
+        player = new ExoPlayer.Builder(this)
+                .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(), true)
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_NETWORK)
+                .build();
+        player.setRepeatMode(repeat ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        player.addListener(new Player.Listener() {
+            @Override public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) { loading = false; notice = ""; }
+                if (state == Player.STATE_ENDED && !repeat) next();
+            }
+
+            @Override public void onPlayerError(PlaybackException error) {
+                trySource(sourceIndex + 1, true);
+            }
+        });
+    }
+
+    private MediaSource buildSource(StreamResolver.Source s) {
+        Map<String, String> headers = new HashMap<>();
+        if (s.web) {
+            headers.put("Origin", "https://www.youtube.com");
+            headers.put("Referer", "https://www.youtube.com/");
+        }
+        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
+                .setUserAgent(s.userAgent)
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(20000)
+                .setReadTimeoutMs(30000)
+                .setDefaultRequestProperties(headers);
+        if (s.hls) {
+            return new HlsMediaSource.Factory(http)
+                    .createMediaSource(new MediaItem.Builder().setUri(s.url).setMimeType(MimeTypes.APPLICATION_M3U8).build());
+        }
+        return new ProgressiveMediaSource.Factory(http).createMediaSource(MediaItem.fromUri(s.url));
+    }
+
+    private void trySource(int index, boolean afterError) {
+        if (player == null) return;
+        if (sources == null || index >= sources.size()) {
+            loading = false;
+            notice = afterError ? "No se pudo reproducir esta canción" : "Canción no disponible";
+            player.stop();
+            pushState();
+            // Pasa a la siguiente después de un momento
+            final int token = loadToken;
+            main.postDelayed(() -> { if (token == loadToken && nextIndex() >= 0) next(); }, 2500);
+            return;
+        }
+        sourceIndex = index;
+        player.setMediaSource(buildSource(sources.get(index)));
+        player.prepare();
+        player.setPlayWhenReady(true);
+    }
+
+    private void load(String id) {
+        if (player == null || id == null || id.isEmpty()) return;
+        final int token = ++loadToken;
+        curId = id;
+        JSONObject it = currentItem();
+        if (it != null && id.equals(it.optString("id"))) {
+            curTitle = it.optString("title", "");
+            curChannel = it.optString("channel", "");
+        }
+        loading = true;
+        notice = "";
+        sources = null;
+        player.stop();
+        player.clearMediaItems();
+        pushState();
+        io.execute(() -> {
+            StreamResolver.Result r = null;
+            Exception err = null;
+            try {
+                r = StreamResolver.resolve(id);
+            } catch (Exception e) {
+                err = e;
+            }
+            final StreamResolver.Result res = r;
+            final Exception error = err;
+            main.post(() -> {
+                if (token != loadToken || player == null) return;
+                if (res == null) {
+                    sources = null;
+                    android.util.Log.w("MiniPlayer", "No se pudo leer " + id, error);
+                    trySource(0, false);
+                    return;
+                }
+                if (curTitle.isEmpty()) curTitle = res.title;
+                if (curChannel.isEmpty()) curChannel = res.channel;
+                sources = res.sources;
+                trySource(0, false);
+            });
+        });
+    }
+
+    private void togglePlay() {
+        if (player == null) return;
+        if (player.getPlaybackState() == Player.STATE_IDLE && curId != null && !loading) {
+            load(curId);
+            return;
+        }
+        player.setPlayWhenReady(!player.getPlayWhenReady());
+        pushState();
+    }
+
+    private JSONObject currentItem() {
+        return (qIndex >= 0 && qIndex < queue.length()) ? queue.optJSONObject(qIndex) : null;
+    }
+
+    private void play(JSONObject item, JSONArray list, boolean startShuffled) {
+        if (list != null && list.length() > 0) {
+            queue = list;
+            qIndex = 0;
+            if (item != null) {
+                String id = item.optString("id", "");
+                for (int i = 0; i < list.length(); i++) {
+                    JSONObject o = list.optJSONObject(i);
+                    if (o != null && id.equals(o.optString("id"))) { qIndex = i; break; }
+                }
+            } else if (startShuffled) {
+                qIndex = rnd.nextInt(list.length());
+            }
+        } else if (item != null) {
+            queue = new JSONArray();
+            queue.put(item);
+            qIndex = 0;
+        } else {
+            return;
+        }
+        JSONObject cur = currentItem();
+        if (cur != null) {
+            curTitle = "";
+            curChannel = "";
+            load(cur.optString("id", ""));
+        }
+    }
+
+    private int nextIndex() {
+        int n = queue.length();
+        if (n == 0) return -1;
+        if (shuffle && n > 1) {
+            int i;
+            do { i = rnd.nextInt(n); } while (i == qIndex);
+            return i;
+        }
+        return qIndex + 1 < n ? qIndex + 1 : -1;
+    }
+
+    private void goTo(int i) {
+        if (i < 0 || i >= queue.length()) return;
+        qIndex = i;
+        JSONObject o = queue.optJSONObject(i);
+        if (o != null) {
+            curTitle = "";
+            curChannel = "";
+            load(o.optString("id", ""));
+        }
+    }
+
+    private void next() { goTo(nextIndex()); }
+
+    private void prev() {
+        if (player == null) return;
+        if (player.getCurrentPosition() > 3000 || qIndex <= 0) {
+            player.seekTo(0);
+            return;
+        }
+        goTo(qIndex - 1);
+    }
+
+    private double posSec() {
+        return player == null ? 0 : Math.max(0, player.getCurrentPosition()) / 1000.0;
+    }
+
+    private double durSec() {
+        if (player == null) return 0;
+        long d = player.getDuration();
+        return d == C.TIME_UNSET || d < 0 ? 0 : d / 1000.0;
+    }
+
+    private boolean isPaused() {
+        return player == null || !player.getPlayWhenReady();
     }
 
     // ------------------------------------------------------------------ ventana flotante
@@ -196,49 +393,11 @@ public class PlayerService extends Service {
         }
     }
 
-    @SuppressLint({"SetJavaScriptEnabled", "RequiresFeature", "RestrictedApi"})
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     private void setupOverlay() {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         root = new DragLayout(this);
 
-        // WebView de YouTube (oculto detrás de la tarjeta)
-        yt = new WebView(this);
-        WebSettings ys = yt.getSettings();
-        ys.setJavaScriptEnabled(true);
-        ys.setDomStorageEnabled(true);
-        ys.setMediaPlaybackRequiresUserGesture(false);
-        CookieManager.getInstance().setAcceptCookie(true);
-        final boolean docStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
-        if (docStart) {
-            try {
-                WebViewCompat.addDocumentStartJavaScript(yt, Scripts.DOC_START,
-                        Collections.singleton("https://*.youtube.com"));
-            } catch (Exception ignored) {}
-        }
-        yt.setWebViewClient(new WebViewClient() {
-            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                if (AdBlock.isAd(r.getUrl())) return AdBlock.empty();
-                return null;
-            }
-
-            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                String host = r.getUrl().getHost();
-                if (host == null) return true;
-                return !(host.endsWith("youtube.com") || host.endsWith("youtu.be") || host.endsWith("google.com"));
-            }
-
-            @Override public void onPageStarted(WebView v, String url, Bitmap favicon) {
-                if (!docStart) v.evaluateJavascript(Scripts.DOC_START, null);
-            }
-        });
-        yt.setWebChromeClient(new WebChromeClient());
-        yt.setAlpha(0.01f);
-        FrameLayout.LayoutParams ytLp = new FrameLayout.LayoutParams(dp(200), dp(120));
-        ytLp.leftMargin = dp(60);
-        ytLp.topMargin = dp(80);
-        root.addView(yt, ytLp);
-
-        // WebView de la interfaz (la tarjeta)
         ui = new WebView(this);
         ui.setBackgroundColor(Color.TRANSPARENT);
         WebSettings us = ui.getSettings();
@@ -246,6 +405,7 @@ public class PlayerService extends Service {
         us.setDomStorageEnabled(true);
         ui.addJavascriptInterface(new Bridge(), "Android");
         ui.setWebViewClient(new WebViewClient());
+        ui.setWebChromeClient(new WebChromeClient());
         ui.loadUrl("file:///android_asset/player.html");
         root.addView(ui, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -259,8 +419,6 @@ public class PlayerService extends Service {
         lp.y = prefs.getInt("y", dm.heightPixels / 3);
         clampPos();
         wm.addView(root, lp);
-
-        yt.loadUrl("https://m.youtube.com/");
     }
 
     private int dp(int v) { return Math.round(v * density); }
@@ -279,17 +437,41 @@ public class PlayerService extends Service {
         wm.updateViewLayout(root, lp);
     }
 
+    private void applySize() {
+        if (root == null) return;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int oldW = lp.width;
+        if (bubble) {
+            lp.width = dp(BUBBLE);
+            lp.height = dp(BUBBLE);
+        } else {
+            lp.width = Math.min(dp(CARD_W), dm.widthPixels);
+            lp.height = panelOpen ? Math.min(dp(PANEL_H), dm.heightPixels - dp(40)) : dp(CARD_H);
+        }
+        lp.x += oldW - lp.width; // mantiene el borde derecho en su sitio
+        clampPos();
+        if (panelOpen && !bubble) {
+            // que el panel quepa completo en la pantalla
+            lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - lp.height - dp(20)));
+        }
+        wm.updateViewLayout(root, lp);
+    }
+
     private void setBubble(boolean b) {
         if (root == null) return;
         bubble = b;
-        if (b) setFocusable(false);
-        int oldW = lp.width;
-        lp.width = dp(b ? BUBBLE : CARD_W);
-        lp.height = dp(b ? BUBBLE : CARD_H);
-        lp.x += oldW - lp.width; // mantiene el borde derecho en su sitio
-        clampPos();
-        wm.updateViewLayout(root, lp);
+        if (b) {
+            panelOpen = false;
+            setFocusable(false);
+        }
+        applySize();
         pushState();
+    }
+
+    private void setPanel(boolean open) {
+        panelOpen = open;
+        setFocusable(open);
+        applySize();
     }
 
     private void setFocusable(boolean focus) {
@@ -315,7 +497,7 @@ public class PlayerService extends Service {
     }
 
     private void handle(String name, String argsJson, final String cbId) {
-        if (yt == null || name == null) return;
+        if (player == null || name == null) return;
         JSONArray a;
         try {
             a = new JSONArray(argsJson == null || argsJson.isEmpty() ? "[]" : argsJson);
@@ -337,25 +519,38 @@ public class PlayerService extends Service {
                 });
                 return;
             }
-            case "play": play(a.optJSONObject(0), a.optJSONArray(1)); break;
-            case "toggle": setPlaying(curPaused); break;
+            case "play": play(a.optJSONObject(0), a.optJSONArray(1), a.optBoolean(2, false)); break;
+            case "toggle": togglePlay(); break;
             case "next": next(); break;
             case "prev": prev(); break;
-            case "seek": seekTo(curDur * a.optDouble(0, 0)); break;
+            case "seek": {
+                double d = durSec();
+                if (d > 0) player.seekTo((long) (d * 1000 * Math.max(0, Math.min(1, a.optDouble(0, 0)))));
+                break;
+            }
             case "shuffle":
                 shuffle = !shuffle;
                 prefs.edit().putBoolean("shuffle", shuffle).apply();
                 reply(cbId, String.valueOf(shuffle));
                 return;
+            case "setShuffle":
+                shuffle = a.optBoolean(0, false);
+                prefs.edit().putBoolean("shuffle", shuffle).apply();
+                break;
             case "repeat":
                 repeat = !repeat;
+                player.setRepeatMode(repeat ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
                 prefs.edit().putBoolean("repeat", repeat).apply();
                 reply(cbId, String.valueOf(repeat));
                 return;
-            case "fav": reply(cbId, String.valueOf(toggleFav())); return;
-            case "favorites": reply(cbId, favs().toString()); return;
+            case "getMixes": reply(cbId, mixes().toString()); return;
+            case "setMixes": {
+                JSONArray m = a.optJSONArray(0);
+                if (m != null) prefs.edit().putString("mixes", m.toString()).apply();
+                break;
+            }
             case "drag": if (root != null) root.armed = true; return;
-            case "focusable": setFocusable(a.optBoolean(0, false)); break;
+            case "panel": setPanel(a.optBoolean(0, false)); break;
             case "mode": setBubble("bubble".equals(a.optString(0, ""))); break;
             case "close": stopSelf(); return;
             default: break;
@@ -363,204 +558,62 @@ public class PlayerService extends Service {
         reply(cbId, "null");
     }
 
-    // ------------------------------------------------------------------ reproducción
+    // ------------------------------------------------------------------ mixes (listas propias)
 
-    private JSONObject currentItem() {
-        return (qIndex >= 0 && qIndex < queue.length()) ? queue.optJSONObject(qIndex) : null;
-    }
-
-    private void play(JSONObject item, JSONArray list) {
-        if (item == null) return;
-        String id = item.optString("id", "");
-        if (id.isEmpty()) return;
-        if (list != null && list.length() > 0) {
-            queue = list;
-            qIndex = 0;
-            for (int i = 0; i < list.length(); i++) {
-                JSONObject o = list.optJSONObject(i);
-                if (o != null && id.equals(o.optString("id"))) { qIndex = i; break; }
+    private JSONArray mixes() {
+        String saved = prefs.getString("mixes", null);
+        if (saved != null) {
+            try {
+                return new JSONArray(saved);
+            } catch (JSONException ignored) {
             }
-        } else {
-            queue = new JSONArray();
-            queue.put(item);
-            qIndex = 0;
         }
-        load(id);
-    }
-
-    private void load(String id) {
-        if (yt == null || id == null || id.isEmpty()) return;
-        wantPlay = true;
-        lastEndedId = null;
-        curId = id;
-        curPos = 0;
-        curDur = 0;
-        JSONObject it = currentItem();
-        if (it != null && id.equals(it.optString("id"))) {
-            curTitle = it.optString("title", "");
-            curChannel = it.optString("channel", "");
+        // Primera vez: crea "Favoritos" con los favoritos de la versión anterior
+        JSONArray out = new JSONArray();
+        try {
+            JSONObject fav = new JSONObject();
+            fav.put("id", "fav");
+            fav.put("name", "Favoritos");
+            JSONArray songs;
+            try {
+                songs = new JSONArray(prefs.getString("favs", "[]"));
+            } catch (JSONException e) {
+                songs = new JSONArray();
+            }
+            fav.put("songs", songs);
+            out.put(fav);
+        } catch (JSONException ignored) {
         }
-        yt.loadUrl("https://m.youtube.com/watch?v=" + Uri.encode(id));
-        pushState();
+        prefs.edit().putString("mixes", out.toString()).apply();
+        return out;
     }
 
-    private int nextIndex() {
-        int n = queue.length();
-        if (n == 0) return -1;
-        if (shuffle && n > 1) {
-            int i;
-            do { i = rnd.nextInt(n); } while (i == qIndex);
-            return i;
-        }
-        return qIndex + 1 < n ? qIndex + 1 : -1;
-    }
-
-    private void next() {
-        int i = nextIndex();
-        if (i < 0) return;
-        qIndex = i;
-        JSONObject o = queue.optJSONObject(i);
-        if (o != null) load(o.optString("id", ""));
-    }
-
-    private void prev() {
-        if (curPos > 3 || qIndex <= 0) { seekTo(0); return; }
-        qIndex--;
-        JSONObject o = queue.optJSONObject(qIndex);
-        if (o != null) load(o.optString("id", ""));
-    }
-
-    private void seekTo(double sec) {
-        if (yt == null || Double.isNaN(sec) || Double.isInfinite(sec)) return;
-        yt.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})()", null);
-    }
-
-    private void setPlaying(boolean playIt) {
-        if (yt == null) return;
-        wantPlay = playIt;
-        yt.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){"
-                + (playIt ? "var p=v.play();if(p&&p.catch)p.catch(function(){});" : "v.pause();") + "}})()", null);
-    }
-
-    private void poll() {
-        if (yt == null) return;
-        yt.evaluateJavascript(Scripts.poll(repeat, wantPlay), this::onPoll);
-    }
+    // ------------------------------------------------------------------ estado para la interfaz
 
     private static double finite(double d) {
         return (Double.isNaN(d) || Double.isInfinite(d)) ? 0 : d;
     }
 
-    private void onPoll(String res) {
-        if (res == null || "null".equals(res) || yt == null) return;
-        try {
-            JSONObject s = new JSONObject(res);
-            String id = s.isNull("id") ? null : s.optString("id", null);
-            boolean paused = s.optBoolean("paused", true);
-            curAd = s.optBoolean("ad", false);
-            curPos = finite(s.optDouble("cur", 0));
-            curDur = finite(s.optDouble("dur", 0));
-            curPaused = paused;
-
-            JSONObject it = currentItem();
-            boolean isQueued = it != null && id != null && id.equals(it.optString("id"));
-            if (id != null && !wantPlay) curId = id;
-            if (isQueued) {
-                curTitle = it.optString("title", "");
-                curChannel = it.optString("channel", "");
-            } else if (id != null && !wantPlay) {
-                curTitle = s.optString("title", "");
-                curChannel = "";
-            }
-
-            if (wantPlay && isQueued && !paused && !curAd) wantPlay = false;
-
-            if (s.optBoolean("ended", false) && !repeat && !wantPlay && isQueued && !id.equals(lastEndedId)) {
-                lastEndedId = id;
-                next();
-            }
-
-            if (!paused) wakeLock.acquire(60_000L);
-            else if (wakeLock.isHeld()) wakeLock.release();
-
-            pushState();
-            updateSession();
-        } catch (JSONException ignored) {
-        }
-    }
-
     private void pushState() {
-        if (ui == null) return;
+        if (ui == null || player == null) return;
         JSONObject o = new JSONObject();
         try {
             o.put("id", curId == null ? JSONObject.NULL : curId);
             o.put("title", curTitle);
             o.put("channel", curChannel);
-            o.put("cur", finite(curPos));
-            o.put("dur", finite(curDur));
-            o.put("paused", curPaused);
-            o.put("ad", curAd);
-            o.put("fav", isFav(curId));
+            o.put("cur", finite(posSec()));
+            o.put("dur", finite(durSec()));
+            o.put("paused", isPaused());
+            o.put("loading", loading || player.getPlaybackState() == Player.STATE_BUFFERING);
+            o.put("notice", notice);
             o.put("shuffle", shuffle);
             o.put("repeat", repeat);
             o.put("bubble", bubble);
+            o.put("qIndex", qIndex);
+            o.put("qLen", queue.length());
         } catch (JSONException ignored) {
         }
         ui.evaluateJavascript("window.__state&&window.__state(" + o + ")", null);
-    }
-
-    // ------------------------------------------------------------------ favoritos
-
-    private JSONArray favs() {
-        try {
-            return new JSONArray(prefs.getString("favs", "[]"));
-        } catch (JSONException e) {
-            return new JSONArray();
-        }
-    }
-
-    private boolean isFav(String id) {
-        if (id == null) return false;
-        JSONArray f = favs();
-        for (int i = 0; i < f.length(); i++) {
-            JSONObject o = f.optJSONObject(i);
-            if (o != null && id.equals(o.optString("id"))) return true;
-        }
-        return false;
-    }
-
-    private boolean toggleFav() {
-        if (curId == null) return false;
-        JSONArray f = favs();
-        JSONArray kept = new JSONArray();
-        boolean removed = false;
-        for (int i = 0; i < f.length(); i++) {
-            JSONObject o = f.optJSONObject(i);
-            if (o == null) continue;
-            if (curId.equals(o.optString("id"))) removed = true;
-            else kept.put(o);
-        }
-        JSONArray out = kept;
-        if (!removed) {
-            out = new JSONArray();
-            JSONObject n = new JSONObject();
-            try {
-                n.put("id", curId);
-                n.put("title", curTitle);
-                n.put("channel", curChannel);
-                n.put("duration", fmt(curDur));
-            } catch (JSONException ignored) {
-            }
-            out.put(n);
-            for (int i = 0; i < kept.length(); i++) out.put(kept.opt(i));
-        }
-        prefs.edit().putString("favs", out.toString()).apply();
-        return !removed;
-    }
-
-    private static String fmt(double t) {
-        long s = (long) finite(t);
-        return (s / 60) + ":" + String.format(java.util.Locale.ROOT, "%02d", s % 60);
     }
 
     // ------------------------------------------------------------------ notificación y controles del sistema
@@ -574,11 +627,11 @@ public class PlayerService extends Service {
     private void setupSession() {
         session = new MediaSession(this, "MiniPlayer");
         session.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { setPlaying(true); }
-            @Override public void onPause() { setPlaying(false); }
+            @Override public void onPlay() { if (isPaused()) togglePlay(); }
+            @Override public void onPause() { if (!isPaused()) togglePlay(); }
             @Override public void onSkipToNext() { next(); }
             @Override public void onSkipToPrevious() { prev(); }
-            @Override public void onSeekTo(long pos) { seekTo(pos / 1000.0); }
+            @Override public void onSeekTo(long pos) { if (player != null) player.seekTo(pos); }
             @Override public void onStop() { stopSelf(); }
         });
         session.setActive(true);
@@ -607,6 +660,7 @@ public class PlayerService extends Service {
     }
 
     private Notification buildNotification() {
+        boolean paused = isPaused();
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_note)
                 .setContentTitle(curTitle.isEmpty() ? "Mini Player" : curTitle)
@@ -616,8 +670,8 @@ public class PlayerService extends Service {
                 .setShowWhen(false)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .addAction(action(R.drawable.ic_prev, "Anterior", ACT_PREV, 2))
-                .addAction(action(curPaused ? R.drawable.ic_play : R.drawable.ic_pause,
-                        curPaused ? "Reproducir" : "Pausa", ACT_TOGGLE, 3))
+                .addAction(action(paused ? R.drawable.ic_play : R.drawable.ic_pause,
+                        paused ? "Reproducir" : "Pausa", ACT_TOGGLE, 3))
                 .addAction(action(R.drawable.ic_next, "Siguiente", ACT_NEXT, 4))
                 .addAction(action(R.drawable.ic_close, "Cerrar", ACT_STOP, 5))
                 .setStyle(new Notification.MediaStyle()
@@ -628,24 +682,26 @@ public class PlayerService extends Service {
     }
 
     private void updateSession() {
-        if (session == null) return;
+        if (session == null || player == null) return;
+        boolean paused = isPaused();
+        double dur = durSec();
         session.setPlaybackState(new PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY_PAUSE
                         | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackState.ACTION_SEEK_TO | PlaybackState.ACTION_STOP)
-                .setState(curPaused ? PlaybackState.STATE_PAUSED : PlaybackState.STATE_PLAYING,
-                        (long) (curPos * 1000), curPaused ? 0f : 1f)
+                .setState(paused ? PlaybackState.STATE_PAUSED : PlaybackState.STATE_PLAYING,
+                        player.getCurrentPosition(), paused ? 0f : 1f)
                 .build());
 
         if (curId != null && !curId.equals(artId)) loadArt(curId);
-        String key = curId + "|" + curTitle + "|" + curChannel + "|" + curPaused + "|" + hasArt() + "|" + (long) curDur;
+        String key = curId + "|" + curTitle + "|" + curChannel + "|" + paused + "|" + hasArt() + "|" + (long) dur;
         if (key.equals(notifKey)) return;
         notifKey = key;
 
         MediaMetadata.Builder mb = new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, curTitle)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, curChannel)
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, (long) (curDur * 1000));
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, (long) (dur * 1000));
         if (hasArt()) mb.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art);
         session.setMetadata(mb.build());
         getSystemService(NotificationManager.class).notify(NOTIF_ID, buildNotification());
@@ -657,7 +713,7 @@ public class PlayerService extends Service {
         io.execute(() -> {
             Bitmap bmp = null;
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").openConnection();
+                HttpURLConnection c = (HttpURLConnection) new URL("https://i.ytimg.com/vi/" + Uri.encode(id) + "/mqdefault.jpg").openConnection();
                 c.setConnectTimeout(10000);
                 c.setReadTimeout(10000);
                 try (InputStream in = c.getInputStream()) {

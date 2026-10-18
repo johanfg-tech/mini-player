@@ -6,13 +6,14 @@
 <title>Mini Player</title>
 <style>
   :root {
-    --bg1: rgba(31, 33, 62, 0.95);
-    --bg2: rgba(15, 16, 33, 0.97);
+    --bg1: rgba(31, 33, 62, 0.96);
+    --bg2: rgba(15, 16, 33, 0.98);
     --text: #f4f3ff;
     --muted: #a7a6d6;
     --soft: #b9b8e2;
     --accent: #8d7dff;
     --track: rgba(255, 255, 255, 0.12);
+    --line: rgba(255, 255, 255, 0.08);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
@@ -23,6 +24,7 @@
     touch-action: none;
   }
   button { font: inherit; color: inherit; background: none; border: 0; outline: none; }
+  input { font: inherit; }
   svg { display: block; }
 
   .card {
@@ -41,7 +43,7 @@
     filter: blur(30px) saturate(1.3);
     opacity: .22; pointer-events: none;
   }
-  .content { position: relative; height: 100%; padding: 34px 22px 18px; display: flex; flex-direction: column; }
+  .content { position: relative; height: 300px; padding: 34px 22px 18px; display: flex; flex-direction: column; }
 
   .toolbar {
     position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
@@ -62,19 +64,20 @@
   .art img { width: 100%; height: 100%; object-fit: cover; display: none; }
   .art.has img { display: block; }
   .art.has .note { display: none; }
-  .meta { flex: 1; min-width: 0; padding-right: 22px; }
+  .meta { flex: 1; min-width: 0; padding-right: 30px; }
   .title {
     font-size: 18px; font-weight: 600; line-height: 1.22;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .artist { margin-top: 6px; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ad { margin-top: 6px; font-size: 11px; color: #ffc86b; display: none; }
-  .ad.show { display: block; }
-  .heart { position: absolute; top: 30px; right: 14px; width: 36px; height: 36px; display: grid; place-items: center; color: var(--soft); z-index: 4; }
-  .heart.on { color: var(--accent); }
-  .heart:disabled { opacity: .3; }
+  .notice { margin-top: 6px; font-size: 11.5px; color: #ffc86b; min-height: 14px; }
+  .side { position: absolute; top: 30px; right: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 4; }
+  .sbtn { width: 36px; height: 36px; display: grid; place-items: center; color: var(--soft); border-radius: 12px; }
+  .sbtn:active { background: rgba(255, 255, 255, .1); }
+  .sbtn.on { color: var(--accent); }
+  .sbtn:disabled { opacity: .3; }
 
-  .progress { margin-top: 18px; padding: 10px 0; }
+  .progress { margin-top: 16px; padding: 10px 0; }
   .track { position: relative; height: 6px; border-radius: 99px; background: var(--track); }
   .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, #7a69ff, #a091ff); }
   .knob {
@@ -91,39 +94,90 @@
   .ctl.on::after { content: ""; position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
   .play {
     width: 64px; height: 64px; border-radius: 50%;
-    display: grid; place-items: center; color: #fff;
+    display: grid; place-items: center; color: #fff; position: relative;
     background: radial-gradient(circle at 35% 30%, #9d8fff, #6b62ea 60%, #5458d8);
     box-shadow: 0 0 20px rgba(130, 110, 255, .65), inset 0 1px 0 rgba(255, 255, 255, .25);
   }
   .play:active { transform: scale(.95); }
+  .play .spin {
+    position: absolute; inset: -4px; border-radius: 50%;
+    border: 3px solid transparent; border-top-color: #fff; opacity: 0;
+    animation: rot .9s linear infinite;
+  }
+  .play.loading .spin { opacity: .9; }
+  @keyframes rot { to { transform: rotate(360deg); } }
 
+  /* ---------- panel (buscar / mixes) ---------- */
   .panel {
     position: absolute; inset: 0; z-index: 10;
-    background: linear-gradient(160deg, #1b1d38, #0f1022);
+    background: linear-gradient(170deg, #1b1d38, #0f1022);
     display: none; flex-direction: column;
     padding: 36px 14px 12px;
   }
   .panel.open { display: flex; }
-  .searchrow { display: flex; gap: 8px; align-items: center; }
-  .searchrow input {
-    flex: 1; height: 40px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12);
-    background: rgba(255, 255, 255, .06); color: var(--text); padding: 0 12px; font: inherit; font-size: 15px; outline: none;
-    user-select: text; -webkit-user-select: text;
-  }
-  .searchrow input:focus { border-color: rgba(141, 125, 255, .7); }
-  .tabs { display: flex; gap: 6px; margin: 10px 2px 6px; }
-  .tab { font-size: 13px; padding: 5px 12px; border-radius: 99px; color: var(--soft); }
+  .tabs { display: flex; gap: 6px; margin: 2px 0 10px; align-items: center; }
+  .tab { font-size: 13.5px; padding: 6px 14px; border-radius: 99px; color: var(--soft); }
   .tab.on { background: rgba(141, 125, 255, .22); color: #fff; }
-  .list { flex: 1; overflow-y: auto; touch-action: pan-y; }
+  .tabs .spacer { flex: 1; }
+  .view { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  .view.on { display: flex; }
+  .field {
+    flex: 1; height: 40px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12);
+    background: rgba(255, 255, 255, .06); color: var(--text); padding: 0 12px; font-size: 15px; outline: none;
+    user-select: text; -webkit-user-select: text; min-width: 0;
+  }
+  .field:focus { border-color: rgba(141, 125, 255, .7); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .list { flex: 1; overflow-y: auto; touch-action: pan-y; margin-top: 8px; min-height: 0; }
   .item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px; border-radius: 12px; text-align: left; }
   .item:active { background: rgba(255, 255, 255, .08); }
-  .item img { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: none; background: #2a2c55; }
+  .item img, .thumb { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: none; background: #2a2c55; }
   .item .info { min-width: 0; flex: 1; }
   .item .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .empty { padding: 26px 10px; text-align: center; font-size: 13px; color: var(--muted); }
+  .item.playing .t { color: #b3a8ff; }
+  .mini { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; color: var(--soft); }
+  .mini:active { background: rgba(255, 255, 255, .1); color: #fff; }
+  .empty { padding: 26px 10px; text-align: center; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .btn {
+    height: 40px; padding: 0 16px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #fff;
+    background: linear-gradient(135deg, #8d7dff, #5d63e6); flex: none;
+  }
+  .btn.ghost { background: rgba(255, 255, 255, .08); font-weight: 500; }
+  .btn.danger { background: #d9475b; }
+  .btn:active { opacity: .85; }
+  .mixtile {
+    width: 46px; height: 46px; border-radius: 12px; flex: none; display: grid; place-items: center;
+    font-weight: 700; font-size: 18px; color: #fff; overflow: hidden; position: relative;
+  }
+  .mixtile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .newmix { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border-radius: 12px; color: #c9c0ff; font-weight: 600; font-size: 14px; }
+  .newmix .mixtile { background: rgba(141, 125, 255, .18); color: #c9c0ff; }
 
-  /* Modo burbuja */
+  .mixhead { display: flex; align-items: center; gap: 6px; }
+  .mixhead .name { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mixhead .count { font-size: 12px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .actions .btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+  /* hoja "Guardar en…" */
+  .sheet {
+    position: absolute; inset: 0; z-index: 20; display: none; flex-direction: column;
+    background: rgba(9, 10, 22, .6);
+  }
+  .sheet.open { display: flex; }
+  .sheet .box {
+    margin-top: auto; background: #1d1f3d; border-top: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 22px 22px 0 0; padding: 16px 14px 14px; max-height: 88%; display: flex; flex-direction: column;
+  }
+  .sheet h3 { font-size: 16px; }
+  .sheet .song { font-size: 12.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .check { width: 24px; height: 24px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, .3); display: grid; place-items: center; flex: none; }
+  .check.on { background: var(--accent); border-color: var(--accent); }
+  .check svg { opacity: 0; }
+  .check.on svg { opacity: 1; }
+
+  /* ---------- modo burbuja ---------- */
   .bubble {
     position: absolute; inset: 6px; border-radius: 50%; display: none;
     background: linear-gradient(145deg, #3b3f8f, #8a5cc7 60%, #e07a8a);
@@ -131,10 +185,7 @@
     box-shadow: 0 0 0 2px rgba(170, 130, 255, .9), 0 0 14px rgba(140, 110, 255, .6);
     overflow: hidden;
   }
-  .bubble .state {
-    position: absolute; inset: 0; display: grid; place-items: center;
-    background: rgba(10, 10, 25, .35); color: #fff;
-  }
+  .bubble .state { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10, 10, 25, .35); }
   body.isBubble .card { display: none; }
   body.isBubble .bubble { display: block; }
 </style>
@@ -147,6 +198,9 @@
     <button class="tb" id="bSearch" aria-label="Buscar">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     </button>
+    <button class="tb" id="bMixes" aria-label="Mis mixes">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h12M3 12h12M3 18h7"/><path d="M17 18V8l5-1"/><circle cx="15" cy="18" r="2"/></svg>
+    </button>
     <button class="tb" id="bMin" aria-label="Hacer burbuja">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
     </button>
@@ -155,9 +209,14 @@
     </button>
   </div>
 
-  <button class="heart" id="heart" aria-label="Favorito" disabled>
-    <svg width="24" height="24" viewBox="0 0 24 24"><path id="heartPath" fill="none" stroke="currentColor" stroke-width="2" d="M12 20.5s-7.5-4.6-9.3-9.2C1.6 8.4 3.5 4.5 7.3 4.5c2 0 3.6 1.1 4.7 2.7 1.1-1.6 2.7-2.7 4.7-2.7 3.8 0 5.7 3.9 4.6 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>
-  </button>
+  <div class="side">
+    <button class="sbtn" id="heart" aria-label="Favorito" disabled>
+      <svg width="22" height="22" viewBox="0 0 24 24"><path id="heartPath" fill="none" stroke="currentColor" stroke-width="2" d="M12 20.5s-7.5-4.6-9.3-9.2C1.6 8.4 3.5 4.5 7.3 4.5c2 0 3.6 1.1 4.7 2.7 1.1-1.6 2.7-2.7 4.7-2.7 3.8 0 5.7 3.9 4.6 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>
+    </button>
+    <button class="sbtn" id="addMix" aria-label="Agregar a un mix" disabled>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h11M3 12h11M3 18h7"/><path d="M18 13v8M14 17h8"/></svg>
+    </button>
+  </div>
 
   <div class="content">
     <div class="top">
@@ -168,7 +227,7 @@
       <div class="meta">
         <div class="title" id="title">Nada sonando</div>
         <div class="artist" id="artist">Toca la lupa para buscar música</div>
-        <div class="ad" id="ad">Saltando anuncio…</div>
+        <div class="notice" id="notice"></div>
       </div>
     </div>
 
@@ -185,6 +244,7 @@
         <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="2.6" height="16" rx="1.1"/><path d="M19.5 5.2v13.6a1 1 0 0 1-1.55.83L8.6 13.1a1.3 1.3 0 0 1 0-2.2l9.35-6.53a1 1 0 0 1 1.55.83z"/></svg>
       </button>
       <button class="play" id="bPlay" aria-label="Reproducir o pausar">
+        <span class="spin"></span>
         <svg id="icoPlay" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1.1 1.1 0 0 0 1.7.92l11-7.2a1.1 1.1 0 0 0 0-1.84l-11-7.2A1.1 1.1 0 0 0 7 4.8z"/></svg>
         <svg id="icoPause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5.5" y="4" width="4.6" height="16" rx="1.6"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.6"/></svg>
       </button>
@@ -197,18 +257,82 @@
     </div>
   </div>
 
+  <!-- Panel de búsqueda y mixes -->
   <div class="panel" id="panel">
-    <div class="searchrow">
-      <button class="tb" id="bBack" aria-label="Volver">
+    <div class="tabs">
+      <button class="tb" id="bBack" aria-label="Volver al reproductor">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       </button>
-      <input id="q" type="search" enterkeyhint="search" placeholder="Buscar canción o artista…" spellcheck="false" autocomplete="off">
+      <button class="tab on" id="tabSearch">Buscar</button>
+      <button class="tab" id="tabMixes">Mis mixes</button>
     </div>
-    <div class="tabs">
-      <button class="tab on" id="tabRes">Resultados</button>
-      <button class="tab" id="tabFav">Favoritos</button>
+
+    <div class="view on" id="vSearch">
+      <div class="row">
+        <input class="field" id="q" type="search" enterkeyhint="search" placeholder="Canción o artista…" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="list" id="results"><div class="empty">Escribe y toca buscar en el teclado.<br>Con el <b>+</b> guardas una canción en tus mixes.</div></div>
     </div>
-    <div class="list" id="list"><div class="empty">Escribe y toca buscar en el teclado</div></div>
+
+    <div class="view" id="vMixes">
+      <div class="list" id="mixList" style="margin-top:0"></div>
+    </div>
+
+    <div class="view" id="vMix">
+      <div class="mixhead">
+        <button class="tb" id="mixBack" aria-label="Volver a mis mixes">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div style="flex:1;min-width:0">
+          <div class="name" id="mixName"></div>
+          <div class="count" id="mixCount"></div>
+        </div>
+        <button class="mini" id="mixRename" aria-label="Cambiar nombre">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+        <button class="mini" id="mixDelete" aria-label="Borrar mix">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+        </button>
+      </div>
+      <div class="row" id="renameRow" style="display:none;margin-top:8px">
+        <input class="field" id="renameInput" maxlength="40" placeholder="Nombre del mix">
+        <button class="btn" id="renameOk">Guardar</button>
+      </div>
+      <div class="row" id="deleteRow" style="display:none;margin-top:8px">
+        <div style="flex:1;font-size:13px;color:#ffb3bd">¿Borrar este mix? Las canciones no se borran de los demás.</div>
+        <button class="btn ghost" id="deleteNo">No</button>
+        <button class="btn danger" id="deleteYes">Borrar</button>
+      </div>
+      <div class="actions">
+        <button class="btn" id="mixPlay">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1.1 1.1 0 0 0 1.7.92l11-7.2a1.1 1.1 0 0 0 0-1.84l-11-7.2A1.1 1.1 0 0 0 7 4.8z"/></svg>
+          Reproducir
+        </button>
+        <button class="btn ghost" id="mixShuffle">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+          Aleatorio
+        </button>
+      </div>
+      <div class="list" id="mixSongs"></div>
+    </div>
+
+    <!-- Hoja: guardar canción en mixes -->
+    <div class="sheet" id="sheet">
+      <div class="box">
+        <div class="row">
+          <div style="flex:1;min-width:0">
+            <h3>Guardar en mix</h3>
+            <div class="song" id="sheetSong"></div>
+          </div>
+          <button class="btn" id="sheetDone">Listo</button>
+        </div>
+        <div class="list" id="sheetList"></div>
+        <div class="row" style="margin-top:8px">
+          <input class="field" id="sheetNew" maxlength="40" placeholder="Nuevo mix (ej: Reggaetón, Concentrarme)">
+          <button class="btn" id="sheetCreate">Crear</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -219,7 +343,7 @@
 </div>
 
 <script>
-// ---- puente con Android ----
+// ---------------- puente con Android ----------------
 const pending = {};
 let seq = 0;
 function call(name, ...args) {
@@ -233,14 +357,62 @@ function send(name, ...args) { Android.call(name, JSON.stringify(args), ''); }
 window.__cb = (id, value) => { const f = pending[id]; delete pending[id]; if (f) f(value); };
 
 const $ = (id) => document.getElementById(id);
-let st = null, artId = null, seeking = false, results = [];
+const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const PLUS = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const XS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const COLORS = ['#7a69ff', '#e0739a', '#45b3a6', '#e3a04a', '#5d8df0', '#b06ad9', '#d9605a', '#59b86b'];
 
+let st = null, artId = null, seeking = false, results = [];
+let mixes = [];
+let openMixId = null, sheetSong = null;
+
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function fmt(t) {
   if (!isFinite(t) || t < 0) t = 0;
   t = Math.floor(t);
   const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
   return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
 }
+function thumb(id) { return `https://i.ytimg.com/vi/${encodeURIComponent(id)}/mqdefault.jpg`; }
+function currentSong() {
+  if (!st || !st.id) return null;
+  return { id: st.id, title: st.title || '', channel: st.channel || '', duration: st.dur ? fmt(st.dur) : '' };
+}
+
+// ---------------- mixes ----------------
+function saveMixes() { send('setMixes', mixes); }
+function getMix(id) { return mixes.find((m) => m.id === id); }
+function favMix() {
+  let f = getMix('fav');
+  if (!f) { f = { id: 'fav', name: 'Favoritos', songs: [] }; mixes.unshift(f); }
+  return f;
+}
+function inMix(mix, songId) { return !!mix.songs.find((s) => s.id === songId); }
+function toggleInMix(mix, song) {
+  const i = mix.songs.findIndex((s) => s.id === song.id);
+  if (i >= 0) mix.songs.splice(i, 1);
+  else mix.songs.unshift({ id: song.id, title: song.title, channel: song.channel, duration: song.duration || '' });
+  saveMixes();
+}
+function createMix(name, song) {
+  name = (name || '').trim();
+  if (!name) return null;
+  const m = { id: 'm' + Date.now(), name, songs: [] };
+  if (song) m.songs.push({ id: song.id, title: song.title, channel: song.channel, duration: song.duration || '' });
+  mixes.push(m);
+  saveMixes();
+  return m;
+}
+function colorFor(mix) { let h = 0; for (const c of mix.id) h = (h * 31 + c.charCodeAt(0)) | 0; return COLORS[Math.abs(h) % COLORS.length]; }
+function tile(mix) {
+  if (mix.id === 'fav') return `<div class="mixtile" style="background:linear-gradient(135deg,#8d7dff,#e0739a)">♥</div>`;
+  const first = mix.songs[0];
+  return `<div class="mixtile" style="background:${colorFor(mix)}">${esc(mix.name.charAt(0).toUpperCase())}${first ? `<img src="${thumb(first.id)}" alt="" style="opacity:.55" onerror="this.remove()">` : ''}</div>`;
+}
+
+call('getMixes').then((m) => { mixes = Array.isArray(m) ? m : []; favMix(); refreshHeart(); });
+
+// ---------------- estado del reproductor ----------------
 function setProgress(f) {
   f = Math.min(1, Math.max(0, f || 0));
   $('fill').style.width = (f * 100) + '%';
@@ -254,52 +426,64 @@ function setArt(id) {
     $('art').classList.remove('has'); $('glow').style.backgroundImage = ''; $('bubble').style.backgroundImage = '';
     return;
   }
-  img.onerror = () => { if (!img.src.includes('mqdefault')) img.src = `https://i.ytimg.com/vi/${id}/mqdefault.jpg`; };
+  img.onerror = () => { if (!img.src.includes('mqdefault')) img.src = thumb(id); };
   img.onload = () => {
     $('art').classList.add('has');
     $('glow').style.backgroundImage = `url("${img.src}")`;
     $('bubble').style.backgroundImage = `url("${img.src}")`;
   };
-  img.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+  img.src = `https://i.ytimg.com/vi/${encodeURIComponent(id)}/maxresdefault.jpg`;
+}
+function refreshHeart() {
+  const has = !!(st && st.id);
+  const on = has && mixes.length && inMix(favMix(), st.id);
+  $('heart').disabled = !has;
+  $('addMix').disabled = !has;
+  $('heart').classList.toggle('on', !!on);
+  $('heartPath').setAttribute('fill', on ? 'currentColor' : 'none');
 }
 
+let lastPlayingId = null;
 window.__state = (s) => {
   st = s;
   document.body.classList.toggle('isBubble', !!s.bubble);
   const has = !!s.id;
   $('title').textContent = has ? (s.title || 'Cargando…') : 'Nada sonando';
   $('artist').textContent = has ? (s.channel || '') : 'Toca la lupa para buscar música';
+  $('notice').textContent = s.notice || (s.loading && has ? 'Cargando…' : '');
   setArt(s.id);
-  $('ad').classList.toggle('show', !!s.ad);
-  $('heart').disabled = !has;
-  $('heart').classList.toggle('on', !!s.fav);
-  $('heartPath').setAttribute('fill', s.fav ? 'currentColor' : 'none');
+  refreshHeart();
   $('icoPlay').style.display = s.paused ? '' : 'none';
   $('icoPause').style.display = s.paused ? 'none' : '';
+  $('bPlay').classList.toggle('loading', !!(s.loading && has));
   $('bubbleState').style.opacity = s.paused ? '1' : '0';
   $('bShuffle').classList.toggle('on', !!s.shuffle);
   $('bRepeat').classList.toggle('on', !!s.repeat);
   if (!seeking) { setProgress(s.dur ? s.cur / s.dur : 0); $('tCur').textContent = fmt(s.cur); }
   $('tDur').textContent = fmt(s.dur);
+  if (s.id !== lastPlayingId) {
+    lastPlayingId = s.id;
+    if ($('vMix').classList.contains('on')) renderMix();
+  }
 };
 
-// ---- arrastrar la ventana (tocando cualquier zona libre de la tarjeta o la burbuja) ----
+// ---------------- arrastrar la ventana ----------------
 document.addEventListener('pointerdown', (e) => {
   if (e.target.closest('button, input, .progress, .panel')) return;
   send('drag');
 }, true);
 
-// ---- controles ----
+// ---------------- controles ----------------
 $('bPlay').onclick = () => send('toggle');
 $('bNext').onclick = () => send('next');
 $('bPrev').onclick = () => send('prev');
 $('bShuffle').onclick = async () => $('bShuffle').classList.toggle('on', await call('shuffle'));
 $('bRepeat').onclick = async () => $('bRepeat').classList.toggle('on', await call('repeat'));
-$('heart').onclick = () => send('fav');
+$('heart').onclick = () => { const s = currentSong(); if (s) { toggleInMix(favMix(), s); refreshHeart(); } };
+$('addMix').onclick = () => { const s = currentSong(); if (s) { openPanel('mixes'); openSheet(s); } };
 $('bMin').onclick = () => { closePanel(); send('mode', 'bubble'); };
 $('bClose').onclick = () => send('close');
 
-// ---- barra de progreso ----
 const prog = $('progress');
 function fracAt(e) { const r = $('track').getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
 prog.addEventListener('pointerdown', (e) => {
@@ -311,50 +495,211 @@ prog.addEventListener('pointermove', (e) => {
   if (!seeking) return;
   const f = fracAt(e); setProgress(f); $('tCur').textContent = fmt(f * st.dur);
 });
-const endSeek = (e) => { if (!seeking) return; seeking = false; send('seek', fracAt(e)); };
-prog.addEventListener('pointerup', endSeek);
+prog.addEventListener('pointerup', (e) => { if (!seeking) return; seeking = false; send('seek', fracAt(e)); });
 prog.addEventListener('pointercancel', () => { seeking = false; });
 
-// ---- búsqueda ----
-function openPanel() { $('panel').classList.add('open'); send('focusable', true); setTimeout(() => $('q').focus(), 150); }
-function closePanel() { $('q').blur(); $('panel').classList.remove('open'); send('focusable', false); }
-$('bSearch').onclick = openPanel;
+// ---------------- panel ----------------
+function showView(v) {
+  ['vSearch', 'vMixes', 'vMix'].forEach((id) => $(id).classList.toggle('on', id === v));
+  $('tabSearch').classList.toggle('on', v === 'vSearch');
+  $('tabMixes').classList.toggle('on', v !== 'vSearch');
+}
+function openPanel(which) {
+  $('panel').classList.add('open');
+  send('panel', true);
+  if (which === 'mixes') { showView('vMixes'); renderMixes(); }
+  else { showView('vSearch'); setTimeout(() => $('q').focus(), 250); }
+}
+function closePanel() {
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  closeSheet();
+  $('panel').classList.remove('open');
+  send('panel', false);
+}
+$('bSearch').onclick = () => openPanel('search');
+$('bMixes').onclick = () => openPanel('mixes');
 $('bBack').onclick = closePanel;
+$('tabSearch').onclick = () => { showView('vSearch'); };
+$('tabMixes').onclick = () => { showView('vMixes'); renderMixes(); };
 
-function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function showList(items, emptyMsg) {
-  const list = $('list');
-  if (!items || !items.length) { list.innerHTML = `<div class="empty">${esc(emptyMsg)}</div>`; return; }
-  list.innerHTML = items.map((it, i) => `
-    <button class="item" data-i="${i}">
-      <img src="https://i.ytimg.com/vi/${esc(it.id)}/mqdefault.jpg" alt="" onerror="this.style.visibility='hidden'">
-      <div class="info"><div class="t">${esc(it.title)}</div><div class="s">${esc(it.channel)}${it.duration ? ' · ' + esc(it.duration) : ''}</div></div>
-    </button>`).join('');
-  list.querySelectorAll('.item').forEach((el) => {
-    el.onclick = () => { send('play', items[+el.dataset.i], items); closePanel(); };
+// ---------------- búsqueda ----------------
+function songRow(it, i, opts) {
+  const playing = st && st.id === it.id ? ' playing' : '';
+  const sub = esc(it.channel) + (it.duration ? ' · ' + esc(it.duration) : '');
+  const action = opts.remove
+    ? `<button class="mini" data-act="remove" data-i="${i}" aria-label="Quitar del mix">${XS}</button>`
+    : `<button class="mini" data-act="add" data-i="${i}" aria-label="Guardar en un mix">${PLUS}</button>`;
+  return `<div class="item${playing}" data-i="${i}">
+      <img src="${thumb(it.id)}" alt="" onerror="this.style.visibility='hidden'">
+      <div class="info"><div class="t">${esc(it.title)}</div><div class="s">${sub}</div></div>
+      ${action}
+    </div>`;
+}
+function bindSongList(el, items, opts) {
+  el.querySelectorAll('.item').forEach((row) => {
+    row.onclick = (e) => {
+      const btn = e.target.closest('.mini');
+      const it = items[+row.dataset.i];
+      if (!it) return;
+      if (btn && btn.dataset.act === 'add') { openSheet(it); return; }
+      if (btn && btn.dataset.act === 'remove') { opts.onRemove(it); return; }
+      send('play', it, items, false);
+      closePanel();
+    };
   });
+}
+function showResults(items, emptyMsg) {
+  const el = $('results');
+  if (!items || !items.length) { el.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
+  el.innerHTML = items.map((it, i) => songRow(it, i, {})).join('');
+  bindSongList(el, items, {});
 }
 async function doSearch() {
   const q = $('q').value.trim();
   if (!q) return;
   $('q').blur();
-  setTab('res', true);
-  $('list').innerHTML = '<div class="empty">Buscando…</div>';
+  $('results').innerHTML = '<div class="empty">Buscando…</div>';
   const r = await call('search', q);
-  if (!r || r.error) { showList([], 'No se pudo buscar. Revisa tu conexión.'); return; }
+  if (!r || r.error) { showResults([], 'No se pudo buscar. Revisa tu conexión.'); return; }
   results = r;
-  showList(results, 'Sin resultados');
+  showResults(results, 'Sin resultados');
 }
-async function setTab(t, skipRender) {
-  $('tabRes').classList.toggle('on', t === 'res');
-  $('tabFav').classList.toggle('on', t === 'fav');
-  if (skipRender) return;
-  if (t === 'fav') showList(await call('favorites'), 'Aún no tienes favoritos. Toca el corazón mientras suena una canción.');
-  else showList(results, 'Escribe y toca buscar en el teclado');
-}
-$('tabRes').onclick = () => setTab('res');
-$('tabFav').onclick = () => setTab('fav');
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+
+// ---------------- lista de mixes ----------------
+function renderMixes() {
+  const el = $('mixList');
+  let html = `<button class="newmix" id="newMixBtn"><div class="mixtile">+</div>Nuevo mix</button>
+    <div class="row" id="newMixRow" style="display:none;margin:4px 0 8px">
+      <input class="field" id="newMixName" maxlength="40" placeholder="Nombre (ej: Reggaetón, Concentrarme)">
+      <button class="btn" id="newMixOk">Crear</button>
+    </div>`;
+  html += mixes.map((m) => `
+    <div class="item" data-id="${esc(m.id)}">
+      ${tile(m)}
+      <div class="info"><div class="t">${esc(m.name)}</div><div class="s">${m.songs.length} ${m.songs.length === 1 ? 'canción' : 'canciones'}</div></div>
+      <button class="mini" data-act="play" aria-label="Reproducir mix">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1.1 1.1 0 0 0 1.7.92l11-7.2a1.1 1.1 0 0 0 0-1.84l-11-7.2A1.1 1.1 0 0 0 7 4.8z"/></svg>
+      </button>
+    </div>`).join('');
+  el.innerHTML = html;
+  $('newMixBtn').onclick = () => { $('newMixRow').style.display = 'flex'; $('newMixName').focus(); };
+  const create = () => {
+    const m = createMix($('newMixName').value);
+    if (m) { renderMixes(); }
+  };
+  $('newMixOk').onclick = create;
+  $('newMixName').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+  el.querySelectorAll('.item').forEach((row) => {
+    row.onclick = (e) => {
+      const m = getMix(row.dataset.id);
+      if (!m) return;
+      if (e.target.closest('.mini')) { playMix(m, false); return; }
+      openMix(m.id);
+    };
+  });
+}
+function playMix(m, shuffled) {
+  if (!m || !m.songs.length) return;
+  send('setShuffle', !!shuffled);
+  send('play', null, m.songs, !!shuffled);
+  closePanel();
+}
+
+// ---------------- detalle de un mix ----------------
+function openMix(id) {
+  openMixId = id;
+  $('renameRow').style.display = 'none';
+  $('deleteRow').style.display = 'none';
+  showView('vMix');
+  renderMix();
+}
+function renderMix() {
+  const m = getMix(openMixId);
+  if (!m) { showView('vMixes'); renderMixes(); return; }
+  $('mixName').textContent = m.name;
+  $('mixCount').textContent = `${m.songs.length} ${m.songs.length === 1 ? 'canción' : 'canciones'}`;
+  $('mixPlay').disabled = $('mixShuffle').disabled = !m.songs.length;
+  const el = $('mixSongs');
+  if (!m.songs.length) {
+    el.innerHTML = '<div class="empty">Este mix está vacío.<br>Busca canciones y tócales el <b>+</b> para agregarlas aquí.</div>';
+    return;
+  }
+  el.innerHTML = m.songs.map((s, i) => songRow(s, i, { remove: true })).join('');
+  bindSongList(el, m.songs, {
+    remove: true,
+    onRemove: (song) => { toggleInMix(m, song); renderMix(); refreshHeart(); },
+  });
+}
+$('mixBack').onclick = () => { showView('vMixes'); renderMixes(); };
+$('mixPlay').onclick = () => playMix(getMix(openMixId), false);
+$('mixShuffle').onclick = () => playMix(getMix(openMixId), true);
+$('mixRename').onclick = () => {
+  const m = getMix(openMixId); if (!m) return;
+  $('deleteRow').style.display = 'none';
+  $('renameRow').style.display = 'flex';
+  $('renameInput').value = m.name;
+  $('renameInput').focus();
+};
+const doRename = () => {
+  const m = getMix(openMixId); const n = $('renameInput').value.trim();
+  if (m && n) { m.name = n; saveMixes(); }
+  $('renameRow').style.display = 'none';
+  $('renameInput').blur();
+  renderMix();
+};
+$('renameOk').onclick = doRename;
+$('renameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(); } });
+$('mixDelete').onclick = () => { $('renameRow').style.display = 'none'; $('deleteRow').style.display = 'flex'; };
+$('deleteNo').onclick = () => { $('deleteRow').style.display = 'none'; };
+$('deleteYes').onclick = () => {
+  mixes = mixes.filter((m) => m.id !== openMixId);
+  saveMixes();
+  refreshHeart();
+  showView('vMixes');
+  renderMixes();
+};
+
+// ---------------- hoja "Guardar en mix" ----------------
+function openSheet(song) {
+  sheetSong = song;
+  $('sheetSong').textContent = song.title + (song.channel ? ' · ' + song.channel : '');
+  $('sheetNew').value = '';
+  renderSheet();
+  $('sheet').classList.add('open');
+}
+function closeSheet() { $('sheet').classList.remove('open'); sheetSong = null; }
+function renderSheet() {
+  const el = $('sheetList');
+  el.innerHTML = mixes.map((m) => `
+    <div class="item" data-id="${esc(m.id)}">
+      ${tile(m)}
+      <div class="info"><div class="t">${esc(m.name)}</div><div class="s">${m.songs.length} ${m.songs.length === 1 ? 'canción' : 'canciones'}</div></div>
+      <div class="check ${inMix(m, sheetSong.id) ? 'on' : ''}">${CHECK}</div>
+    </div>`).join('');
+  el.querySelectorAll('.item').forEach((row) => {
+    row.onclick = () => {
+      const m = getMix(row.dataset.id);
+      if (!m || !sheetSong) return;
+      toggleInMix(m, sheetSong);
+      renderSheet();
+      refreshHeart();
+    };
+  });
+}
+const sheetCreate = () => {
+  if (!sheetSong) return;
+  const m = createMix($('sheetNew').value, sheetSong);
+  if (m) { $('sheetNew').value = ''; $('sheetNew').blur(); renderSheet(); }
+};
+$('sheetCreate').onclick = sheetCreate;
+$('sheetNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sheetCreate(); } });
+$('sheetDone').onclick = () => {
+  closeSheet();
+  if ($('vMixes').classList.contains('on')) renderMixes();
+  if ($('vMix').classList.contains('on')) renderMix();
+};
+$('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) $('sheetDone').onclick(); });
 </script>
 </body>
 </html>
